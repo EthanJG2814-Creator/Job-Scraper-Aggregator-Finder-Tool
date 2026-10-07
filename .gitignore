@@ -1,0 +1,26 @@
+# Byte-compiled / cache files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env/
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+
+# VS Code settings
+.vscode/
+
+# Databases / local data (optional — uncomment if you DON’T want this in Git)
+# job_data.db
+
+# Chrome profile directory (adjust name if your folder is different)
+chrome_profile/
+
+# OS junk files
+.DS_Store
+Thumbs.db
