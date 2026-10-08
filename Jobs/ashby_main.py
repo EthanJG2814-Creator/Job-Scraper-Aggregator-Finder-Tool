@@ -58,7 +58,7 @@ class Ashby_Algor():
                 "ats_vendor": 'Ashby',
                 "status": "fail",
                 "job_count": 0,
-                "error": None,
+                "error": str(error),
                 "updated_at" : datetime.now(timezone.utc).isoformat(),
                 "jobs": [],
             }
@@ -69,6 +69,7 @@ class Ashby_Algor():
 
         company_slug_map = self.database.get_company_slug_map()
         scrape_log_rows = []
+        job_rows = []
 
         for result in results:
             slug = result.get("company_slug")
@@ -79,11 +80,23 @@ class Ashby_Algor():
                 result.get("ats_vendor"),
                 result.get('status'),
                 result.get("job_count", 0),
-                result.get("error"),
-                result.get("updated_at")
+                result.get("error")
             ))
 
+            for job in result.get("jobs",[]):
+                job_rows.append((
+                    company_id,
+                    job.get("title"),
+                    job.get("isRemote"),
+                    job.get("descriptionPlain"),
+                    job.get("publishedAt"),
+                    job.get("employmentType"),
+                    job.get("jobUrl"),
+                    job.get("compensation",{}).get("compensationTierSummary")
+                ))
+
         self.database.bulk_insert_scrape_logs(scrape_log_rows)
+        self.database.bulk_insert_job_possting(job_rows)
 
 
 def main():
@@ -93,3 +106,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+# python -m Jobs.ashby_main

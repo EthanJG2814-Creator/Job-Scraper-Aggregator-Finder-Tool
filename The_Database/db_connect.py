@@ -62,13 +62,30 @@ class database_connection_system:
                 ats_vendor,
                 status,
                 job_count,
-                error,
-                updated_at
+                error
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
         """, rows)
 
         print(f'{ANSI_GREEN} Bulk Insert for Ashby Success! {ANSI_RESET}' )
+        self.db_connection.commit()
+
+    def bulk_insert_job_possting(self,jobs):
+        self.cursor.executemany("""
+            INSERT INTO job_postings(
+                company_id,   
+                job_title,
+                job_remote,
+                job_description,
+                published_date,
+                employment_type,
+                job_url,
+                compensation_summary    
+
+            )
+            VALUES(?,?,?,?,?,?,?,?)""", jobs)
+
+        print(f'{ANSI_GREEN} Bulk Insert for Ashby Jobs Success! {ANSI_RESET}')
         self.db_connection.commit()
 
     def get_company_slug_map(self):

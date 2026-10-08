@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS sources (
     job_count          INTEGER,
     error              TEXT,
     created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (company_id)
         REFERENCES companies(company_id)
@@ -23,8 +22,28 @@ CREATE TABLE IF NOT EXISTS sources (
         ON DELETE RESTRICT,
 
     UNIQUE (source_id, company_id)
-)
+);
 
+CREATE TABLE IF NOT EXISTS job_postings (
+    job_posting_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id      INTEGER NOT NULL,   
+    job_title       TEXT NOT NULL,
+    job_remote      BOOLEAN,
+    job_description TEXT NOT NULL,
+    published_date  TEXT,
+    employment_type TEXT,
+    job_url         TEXT,
+    compensation_summary    TEXT,
+
+    FOREIGN KEY (company_id)
+        REFERENCES companies(company_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    UNIQUE (job_url)
+
+);
 
 -- EXECUTE COMMANT:
 -- sqlite3 The_Database/job_data.db < The_Database/sql_code/Table_Create.sql
+
