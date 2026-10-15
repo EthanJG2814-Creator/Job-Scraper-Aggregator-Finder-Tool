@@ -23,7 +23,7 @@ class Ashby_Algor():
         for value in values:
             slug = value.strip()
             list_of_slugs.append(slug)
-            self.database.logging_slugs(slug)
+            self.database.logging_slugs(slug,"Ashby")
 
         return list_of_slugs 
 

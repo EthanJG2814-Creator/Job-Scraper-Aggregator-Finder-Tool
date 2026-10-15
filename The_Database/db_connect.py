@@ -30,7 +30,7 @@ class database_connection_system:
         self.cursor.execute(sql_query)
         print(f'{ANSI_GREEN} The Database a with its tables have been created {ANSI_RESET}')
 
-    def logging_slugs(self,company_name):
+    def logging_slugs(self,company_name,ATS_VENDOR):
         '''
         This logs the slug name for each company, this can also potentially be the company name as well. 
         '''
@@ -42,16 +42,13 @@ class database_connection_system:
         VALUES (?);
         """
 
-        was_inserted = self.execute_write_query(
-            sql=sql,
-            values=(
-                company_name,
-            ),
-            duplicate_message=(
-                f"{company_name} is already in the database. "
-                "Skipping."
-            ),
-        )
+        try:
+            self.cursor.execute(sql,(company_name,))
+            was_inserted = True
+
+        except sqlite3.IntegrityError as err:
+            self.log_errors.catching_errors(err,"logging_slugs",ATS_VENDOR,company_name)
+            was_inserted = False
 
         if was_inserted:
             print(
@@ -94,7 +91,7 @@ class database_connection_system:
                     last_scanned = excluded.last_scanned
             """, jobs)
 
-            print(f'{ANSI_GREEN} Bulk Insert for logs Success! {ANSI_RESET}' )
+            print(f'{ANSI_GREEN} Bulk Insert for Jobs Success! {ANSI_RESET}' )
             self.db_connection.commit()
 
         except sqlite3.IntegrityError as err:
@@ -108,58 +105,6 @@ class database_connection_system:
         """)
        rows = self.cursor.fetchall()
        return {slug_name: company_id for company_id, slug_name in rows}
-        
-    def execute_write_query(
-            self,
-            sql: str,
-            values: tuple,
-            duplicate_message: str | None = None,
-        ) -> bool:
-            """
-            Reusable method for INSERT, UPDATE, and DELETE operations.
-
-            Uses a SAVEPOINT instead of commit()/rollback() so a duplicate row can be
-            undone without fsync-ing to disk on every single call. Call commit()
-            periodically (or once at the end) to actually persist the writes.
-            """
-
-            try:
-                self.cursor.execute("SAVEPOINT write_query;")
-                self.cursor.execute(sql, values)
-                self.cursor.execute("RELEASE write_query;")
-
-                return True
-
-            except sqlite3.IntegrityError:
-                self.cursor.execute("ROLLBACK TO write_query;")
-                self.cursor.execute("RELEASE write_query;")
-
-                if duplicate_message:
-                    print(
-                        f"{ANSI_YELLOW}"
-                        f"{duplicate_message}"
-                        f"{ANSI_RESET}"
-                    )
-                else:
-                    print(
-                        f"{ANSI_YELLOW}"
-                        "Database constraint error. Skipping."
-                        f"{ANSI_RESET}"
-                    )
-
-                return False
-
-            except sqlite3.Error as error:
-                self.cursor.execute("ROLLBACK TO write_query;")
-                self.cursor.execute("RELEASE write_query;")
-
-                print(
-                    f"{ANSI_RED}"
-                    f"Database error: {error}"
-                    f"{ANSI_RESET}"
-                )
-
-                return False   
 
 
     def close_database(self):

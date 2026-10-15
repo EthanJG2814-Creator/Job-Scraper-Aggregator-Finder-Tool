@@ -34,7 +34,7 @@ class bamboohr_main_system():
         for value in values:
             slug = value.strip()
             list_of_slugs.append(slug)
-            self.database.logging_slugs(slug)
+            self.database.logging_slugs(slug,"bamboohr")
 
         return list_of_slugs
 
@@ -138,11 +138,12 @@ class bamboohr_main_system():
                     job.get("datePosted"),
                     job.get("employmentStatusLabel"),
                     job.get("jobOpeningShareUrl"),
-                    job.get("compensation", "N/A")
+                    job.get("compensation", "N/A"),
+                    datetime.now().astimezone().isoformat(timespec="seconds")
                 ))
 
         self.database.bulk_insert_scrape_logs(scrape_log_rows)
-        self.database.bulk_insert_job_possting(job_rows)
+        self.database.bulk_insert_job_possting(job_rows,"Bamboohr")
 
 
     def clean_html(self, html_text):

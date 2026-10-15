@@ -13,11 +13,16 @@ class Error_Log_system ():
     def __init__(self):
         pass
 
-    def catching_errors(self,error_var,section, ats_vendor):
+    def catching_errors(self,error_var,section, ats_vendor, slug_name = None):
         print(f'{ANSI_RED} {error_var} {ANSI_RESET}')
         time_of_error = datetime.now().astimezone().isoformat(timespec="seconds")
 
         error_log = f"{time_of_error}\nthere was an error at {section}\nThis is the error code: {error_var}\nIt came from this ATS VENDOR: {ats_vendor}"
+        
+        if slug_name != None:
+            slug_error = f'\nThe error is related to this company name: {slug_name}' 
+            error_log += slug_error
+
         self.logging_errors(error_log)
 
     def logging_errors(self, error_log):
