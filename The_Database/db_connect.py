@@ -47,7 +47,7 @@ class database_connection_system:
             was_inserted = True
 
         except sqlite3.IntegrityError as err:
-            self.log_errors.catching_errors(err,"logging_slugs",ATS_VENDOR,company_name)
+            #self.log_errors.catching_errors(err,"logging_slugs",ATS_VENDOR,company_name)
             was_inserted = False
 
         if was_inserted:

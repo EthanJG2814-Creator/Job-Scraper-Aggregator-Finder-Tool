@@ -31,3 +31,9 @@ class Error_Log_system ():
 
         with open("errors.txt", "a", encoding="utf-8") as file:
             file.write("\n\n\n" + new_section)
+
+    def icims_error_catching(self,error_var,job_url):
+        time_of_error = datetime.now().astimezone().isoformat(timespec="seconds")
+        error_log = f'{time_of_error}\nwe caught a description error with ICIMS\nthis is the error code: {error_var}\n this is the job causing the problem{job_url}'
+
+
