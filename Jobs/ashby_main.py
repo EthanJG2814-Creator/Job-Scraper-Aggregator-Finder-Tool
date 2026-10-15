@@ -48,7 +48,6 @@ class Ashby_Algor():
                 "status": "success",
                 "job_count": len(jobs),
                 "error": None,
-                "updated_at" : datetime.now(timezone.utc).isoformat(),
                 "jobs": jobs,                
             }
 
@@ -59,12 +58,11 @@ class Ashby_Algor():
                 "status": "fail",
                 "job_count": 0,
                 "error": str(error),
-                "updated_at" : datetime.now(timezone.utc).isoformat(),
                 "jobs": [],
             }
     
     def data_aquasition(self, list_of_slugs):
-        with ThreadPoolExecutor(max_workers=40) as executor:
+        with ThreadPoolExecutor(max_workers=50) as executor:
             results = list(executor.map(self.slug_processing, list_of_slugs))
 
         company_slug_map = self.database.get_company_slug_map()
@@ -92,11 +90,12 @@ class Ashby_Algor():
                     job.get("publishedAt"),
                     job.get("employmentType"),
                     job.get("jobUrl"),
-                    job.get("compensation",{}).get("compensationTierSummary")
+                    job.get("compensation",{}).get("compensationTierSummary"),
+                    datetime.now().astimezone().isoformat(timespec="seconds")
                 ))
 
         self.database.bulk_insert_scrape_logs(scrape_log_rows)
-        self.database.bulk_insert_job_possting(job_rows)
+        self.database.bulk_insert_job_possting(job_rows,"Ashby")
 
 
 def main():

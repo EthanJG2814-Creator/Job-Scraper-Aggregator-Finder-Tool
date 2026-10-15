@@ -1,10 +1,14 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+import json
+from logging_errors import Error_Log_system
 
 # global variables to use
 PROJECT_ROOT = Path(__file__).resolve().parent
 DB_Path = PROJECT_ROOT / "job_data.db"
+ERROR_LOG_PATH = PROJECT_ROOT / "logs" / "database_errors.txt"
+
 
 # color code
 ANSI_RED = "\033[31m"
@@ -18,6 +22,7 @@ class database_connection_system:
     def __init__(self):
         self.db_connection = sqlite3.connect(DB_Path)
         self.cursor = self.db_connection.cursor()
+        self.log_errors = Error_Log_system()
 
     def create_database_table(self):
         with open("The_Database/sql_code/Table_Create.sql", "r") as file:
@@ -67,26 +72,34 @@ class database_connection_system:
             VALUES (?, ?, ?, ?, ?)
         """, rows)
 
-        print(f'{ANSI_GREEN} Bulk Insert for Ashby Success! {ANSI_RESET}' )
+        print(f'{ANSI_GREEN} Bulk Insert for logs Success! {ANSI_RESET}' )
         self.db_connection.commit()
 
-    def bulk_insert_job_possting(self,jobs):
-        self.cursor.executemany("""
-            INSERT INTO job_postings(
-                company_id,   
-                job_title,
-                job_remote,
-                job_description,
-                published_date,
-                employment_type,
-                job_url,
-                compensation_summary    
+    def bulk_insert_job_possting(self, jobs, ATS_Vendor):
+        try: 
+            self.cursor.executemany("""
+                INSERT INTO job_postings (
+                    company_id,
+                    job_title,
+                    job_remote,
+                    job_description,
+                    published_date,
+                    employment_type,
+                    job_url,
+                    compensation_summary,
+                    last_scanned
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?,?)
+                ON CONFLICT(job_url) DO UPDATE SET
+                    last_scanned = excluded.last_scanned
+            """, jobs)
 
-            )
-            VALUES(?,?,?,?,?,?,?,?)""", jobs)
+            print(f'{ANSI_GREEN} Bulk Insert for logs Success! {ANSI_RESET}' )
+            self.db_connection.commit()
 
-        print(f'{ANSI_GREEN} Bulk Insert for Ashby Jobs Success! {ANSI_RESET}')
-        self.db_connection.commit()
+        except sqlite3.IntegrityError as err:
+            self.log_errors.catching_errors(err,"Bulk_insert_job_posting",ATS_Vendor)
+            
 
     def get_company_slug_map(self):
        self.cursor.execute("""
@@ -147,7 +160,8 @@ class database_connection_system:
                 )
 
                 return False   
-        
+
+
     def close_database(self):
         self.commit()
         self.cursor.close()
