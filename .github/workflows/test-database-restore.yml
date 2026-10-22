@@ -1,0 +1,91 @@
+name: Test saved database restore
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Download repository code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Download database from latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p restore
+          gh release download \
+            --pattern "job-database.zip" \
+            --dir restore
+
+      - name: Extract and verify database
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          import sqlite3
+          import zipfile
+
+          archive = Path("restore/job-database.zip")
+          database = Path("The_Database/job_data.db")
+
+          with zipfile.ZipFile(archive) as zipped:
+              matches = [
+                  item for item in zipped.infolist()
+                  if not item.is_dir()
+                  and Path(item.filename).name == "job_data.db"
+              ]
+
+              if len(matches) != 1:
+                  raise RuntimeError(
+                      f"Expected exactly one job_data.db; found {len(matches)}"
+                  )
+
+              if database.exists():
+                  raise RuntimeError(
+                      "Database already exists; refusing to overwrite it"
+                  )
+
+              database.parent.mkdir(parents=True, exist_ok=True)
+
+              with zipped.open(matches[0]) as source:
+                  with database.open("wb") as destination:
+                      shutil.copyfileobj(source, destination)
+
+          print(f"Restored database: {database}")
+          print(f"Extracted size: {database.stat().st_size / 1024**2:.1f} MiB")
+
+          connection = sqlite3.connect(
+              database.resolve().as_uri() + "?mode=ro",
+              uri=True,
+          )
+
+          try:
+              result = connection.execute("PRAGMA quick_check").fetchall()
+
+              if result != [("ok",)]:
+                  raise RuntimeError(f"Database check failed: {result}")
+
+              print("Database quick_check: OK")
+
+              for table in ("companies", "sources", "job_postings"):
+                  count = connection.execute(
+                      f"SELECT COUNT(*) FROM {table}"
+                  ).fetchone()[0]
+                  print(f"{table}: {count:,} rows")
+
+          finally:
+              connection.close()
+          PY
