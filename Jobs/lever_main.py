@@ -30,7 +30,7 @@ class lever_algor():
 
             return self.list_of_slugs 
 
-    def data_aquasition(self,):
+    def data_aquasition(self):
         '''
         here is where we process all the slugs and exatract
         the company inforomation from each request
