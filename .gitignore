@@ -16,7 +16,10 @@ env.bak/
 .vscode/
 
 # Databases / local data (optional — uncomment if you DON’T want this in Git)
-# job_data.db
+job_data.db
+job_data.db-wal
+job_data.db-shm
+job_data.db-journal
 
 # Chrome profile directory (adjust name if your folder is different)
 chrome_profile/
