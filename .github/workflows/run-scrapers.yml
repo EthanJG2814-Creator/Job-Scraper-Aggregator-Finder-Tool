@@ -1,0 +1,66 @@
+name: Run job scrapers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-scrapers
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Download repository code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run scrapers sequentially
+        run: python Main.py
+
+      - name: Create consistent database snapshot
+        if: ${{ always() }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sqlite3
+
+          source_path = Path("The_Database/job_data.db")
+
+          if not source_path.is_file():
+              print("No database exists to save.")
+          else:
+              output = Path("artifacts")
+              output.mkdir(exist_ok=True)
+
+              source = sqlite3.connect(source_path)
+              destination = sqlite3.connect(output / "job_data.db")
+              try:
+                  source.backup(destination)
+              finally:
+                  destination.close()
+                  source.close()
+
+              print("Database snapshot created.")
+          PY
+
+      - name: Save database snapshot
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-database-${{ github.run_id }}
+          path: artifacts/job_data.db
+          if-no-files-found: warn
+          retention-days: 7
