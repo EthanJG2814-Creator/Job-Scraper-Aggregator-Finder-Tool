@@ -3,3 +3,4 @@ request
 os
 bs4
 flask
+beautifulsoup4
