@@ -1,0 +1,55 @@
+name: Test database initialization
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  initialize-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Download repository code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create database and tables
+        run: python Main.py --init-only
+
+      - name: Verify required tables
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sqlite3
+
+          database = Path("The_Database/job_data.db")
+          if not database.is_file():
+              raise RuntimeError("Database file was not created")
+
+          connection = sqlite3.connect(database)
+          try:
+              tables = {
+                  name.lower()
+                  for (name,) in connection.execute(
+                      "SELECT name FROM sqlite_master WHERE type = 'table'"
+                  )
+              }
+          finally:
+              connection.close()
+
+          required = {"companies", "sources", "job_postings"}
+          missing = required - tables
+
+          if missing:
+              raise RuntimeError(f"Missing tables: {sorted(missing)}")
+
+          print(f"Database exists: {database}")
+          print(f"Required tables found: {sorted(required)}")
+          PY
