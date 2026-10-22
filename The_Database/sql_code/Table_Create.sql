@@ -2,7 +2,6 @@ CREATE TABLE IF NOT EXISTS COMPANIES (
     company_id       INTEGER PRIMARY KEY,
     slug_name        TEXT NOT NULL,
     created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE (slug_name)
 );
@@ -34,6 +33,7 @@ CREATE TABLE IF NOT EXISTS job_postings (
     employment_type TEXT,
     job_url         TEXT,
     compensation_summary    TEXT,
+    last_scanned            DATE,
 
     FOREIGN KEY (company_id)
         REFERENCES companies(company_id)

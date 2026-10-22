@@ -1,0 +1,18 @@
+it seems like ashby and greenhouse have duplicate jobs, this will have to be addressed later. 
+
+Sort options (Mixture is the default)
+
+Published date: jobs with a published date come first, newest to oldest. Jobs without one go to the end, ordered by last scanned.
+Last scanned date: newest scan first, oldest last.
+Mixture: jobs sort by published day, newest first. Jobs published on the same day are ordered by last scanned, newest first. Jobs with no published date go after all the published ones, ordered by last scanned.
+
+to load the website: python3 website/app.py
+
+Left list: each row now has a second line, ID 16520 · Lever · Type n/a, above the existing Published … · Scanned … line. If a job has no employment type, it shows "Type n/a".
+Main panel: it shows Job ID: … · ATS: … · Employment type: …, with the published and scanned dates below it.
+ATS vendor: it comes from the sources table. Every source in your database is currently Lever.
+Description: each posting's description is shown in its panel. If a job has none, it says "No description available."
+Short description: "Theme Park Booking Specialist" really does have only a short description stored (221 characters), so what you see in your screenshot is all the data there is for it.
+Remote bug: the main panel said "Remote" for every job, because job_remote is stored as the text "N/A" in all 57,905 rows. It now only says "Remote" when the value actually means remote.
+
+Yes—5,878 of your 7,739 failures were HTTP 429 responses, roughly 76%. The main fix is to slow down requests and give the server time to recover, not immediately retry thousands of failures. Rate limiting can keep rejecting requests until its time window resets.

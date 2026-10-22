@@ -1,3 +1,5 @@
 sqlite3
 request 
 os
+bs4
+flask

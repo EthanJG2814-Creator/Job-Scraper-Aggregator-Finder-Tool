@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Searcher</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>.searchbar { grid-template-columns: 1.4fr 1.6fr 1fr auto; }#page-input { width: 70px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 3px; font: inherit; text-align: center; background: #fff; }
+    #page-label { white-space: nowrap; }
+    .pagination button:disabled { opacity: .4; cursor: default; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">JOB / SEARCHER</div>
+    <div class="live-indicator"><span></span> Live database</div>
+  </header>
+  <main>
+    <section class="searchbar" aria-label="Search filters">
+      <label>
+        <span>Job title</span>
+        <input id="title-input" type="search" placeholder="e.g. data analyst">
+      </label>
+      <label>
+        <span>Search description</span>
+        <input id="description-input" type="search" placeholder="e.g. python, biomedical engineering">
+      </label>
+      <label>
+        <span>Sort</span>
+        <select id="sort-filter">
+          <option value="mixed">Mixture (published, then scanned)</option>
+          <option value="published">Published date</option>
+          <option value="scanned">Last scanned date</option>
+        </select>
+      </label>
+      <button id="search-button" type="button">Search</button>
+    </section>
+
+    <section class="workspace">
+      <aside class="results-panel">
+        <div class="results-heading">
+          <p id="result-count">Loading jobs</p>
+          <button id="clear-button" class="icon-button" title="Clear filters" aria-label="Clear filters">×</button>
+        </div>
+        <div id="job-list" class="job-list" aria-live="polite"></div>
+        <nav class="pagination" aria-label="Job results pages">
+          <button id="first-page" type="button" title="First page">«</button>
+          <button id="previous-page" type="button">Previous</button>
+          <span id="page-label">Page <input id="page-input" type="number" min="1" value="1" aria-label="Page number"> of <span id="page-total">1</span></span>
+          <button id="next-page" type="button">Next</button>
+          <button id="last-page" type="button" title="Last page">»</button>
+        </nav>
+      </aside>
+      <article id="job-detail" class="detail-panel">
+        <p class="empty-state">Select a job posting to review its description.</p>
+      </article>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
