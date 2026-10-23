@@ -162,8 +162,7 @@ populates them as the configured scrapers run.
    with **Terminal > New Terminal**.
 
 3. (Optional) Download the database ZIP from the repository's **Releases** page
-   and extract `job_data.db` into the `The_Database` folder. Keep a backup
-   before replacing an existing database.
+   and extract `job-database-YYYY-MM-DD.db` into the `The_Database` folder. Make sure you rename it to `job_data.db` before you run the code. Keep a    backup before replacing an existing database.
 
 4. In the VS Code terminal, create a virtual environment:
 
