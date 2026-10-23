@@ -1,5 +1,6 @@
 import json
 import requests
+from logging_errors import error_code
 from pathlib import Path
 from The_Database.db_connect import database_connection_system
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -101,7 +102,7 @@ class bamboohr_main_system():
                 "ats_vendor": "BambooHR",
                 "status": "fail",
                 "job_count": 0,
-                "error": str(error),
+                "error": error_code(error),
                 "jobs": [],
             }
 

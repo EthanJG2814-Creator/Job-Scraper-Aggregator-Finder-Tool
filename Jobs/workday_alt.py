@@ -1,9 +1,7 @@
 import json
 import re
 import requests
-from bs4 import BeautifulSoup
-from Jobs import workday_main
-from Jobs.workday_main import workday_algor, RateLimiter
+from Jobs.workday_main import workday_algor, LimiterPool, html_to_text
 
 # Job pages are a different route from the /wday/cxs API, so they get their own
 # limiter: a 429 on one route never freezes the other.
@@ -25,8 +23,7 @@ class workday_alt_algor(workday_algor):
 
     def __init__(self):
         super().__init__()
-        self.page_limiter = RateLimiter("job pages")
-        self.page_limiter.interval = PAGE_START_INTERVAL
+        self.page_limiters = LimiterPool("job pages", PAGE_START_INTERVAL)
         self.page_hits = self.api_fallbacks = 0
 
     def get_job_detail(self, detail_url, job_url, summary, headers, ctx):
@@ -42,8 +39,7 @@ class workday_alt_algor(workday_algor):
         html = self.request_job_page(job_url, headers, ctx)
         data = self.parse_job_posting(html)
         title = data.get("title") or summary.get("title")
-        description = BeautifulSoup(
-            data.get("description") or "", "html.parser").get_text(" ", strip=True)
+        description = html_to_text(data.get("description"))
         if not title or not description:
             raise ValueError("Job page is missing title or description.")
         employment_type = EMPLOYMENT_LABELS.get(
@@ -82,17 +78,10 @@ class workday_alt_algor(workday_algor):
             "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
         })
-        for _ in range(workday_main.MAX_RETRIES):
-            started_at = self.page_limiter.wait()
-            with self.session.get(job_url, headers=page_headers, timeout=30) as response:
-                if response.status_code != 429:
-                    response.raise_for_status()
-                    self.page_limiter.on_success()
-                    # Workday sends no charset, so requests would guess latin-1.
-                    return response.content.decode("utf-8", errors="replace")
-                ctx["hit_429"] = True
-                self.page_limiter.on_rate_limited(started_at, job_url.split('/')[2])
-        raise requests.HTTPError("429 after retries", response=response)
+        response = self.request_with_retries(
+            self.page_limiters, "GET", job_url, ctx, headers=page_headers)
+        # Workday sends no charset, so requests would guess latin-1.
+        return response.content.decode("utf-8", errors="replace")
 
     def data_aquasition(self):
         super().data_aquasition()

@@ -6,7 +6,7 @@ from urllib.parse import unquote, urljoin, urlsplit, parse_qs, urlsplit, urlunsp
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
-from logging_errors import Error_Log_system
+from logging_errors import Error_Log_system, error_code
 
 from The_Database.db_connect import database_connection_system
 
@@ -203,7 +203,7 @@ class icims_main_system:
                     completed_sitemaps += 1
 
                 except (requests.RequestException, ET.ParseError, ValueError) as error:
-                    errors.append(f"{sitemap_url} -> {error}")
+                    errors.append(error_code(error))
 
         return {
             "company_slug": slug,
@@ -212,7 +212,7 @@ class icims_main_system:
                 "success" if jobs else "empty" if completed_sitemaps else "fail"
             ),
             "job_count": len(jobs),
-            "error": None if jobs else " | ".join(errors) or None,
+            "error": None if jobs else ",".join(dict.fromkeys(errors)) or None,
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "jobs": jobs,
         }

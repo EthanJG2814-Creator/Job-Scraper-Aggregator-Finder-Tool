@@ -1,5 +1,4 @@
-sqlite3
-request 
-os
-bs4
-flask
+requests
+beautifulsoup4
+lxml
+brotli

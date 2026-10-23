@@ -9,10 +9,32 @@ function esc(value) {
   return div.innerHTML;
 }
 
+function highlight(value, terms) {
+  const text = String(value ?? "");
+  const matches = [...new Set(terms.map((term) => term.trim()).filter(Boolean))]
+    .sort((a, b) => b.length - a.length);
+  if (!matches.length) return esc(text);
+
+  const pattern = new RegExp(`(${matches.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  return text.split(pattern).map((part, index) =>
+    index % 2
+      ? `<mark class="search-highlight">${esc(part)}</mark>`
+      : esc(part)
+  ).join("");
+}
+
 function fmt(value) {
   if (!value) return "—";
   const date = new Date(value);
   return isNaN(date) ? value : date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function titleTerms() {
+  return [$("title-input").value];
+}
+
+function descriptionTerms() {
+  return $("description-input").value.split(",");
 }
 
 async function load() {
@@ -37,7 +59,7 @@ async function load() {
     $("next-page").disabled = $("last-page").disabled = page >= pages;
     $("job-list").innerHTML = jobs.length
       ? jobs.map((job, i) => `<button class="job-row" data-index="${i}">
-          <span class="job-row-title">${esc(job.title)}</span>
+          <span class="job-row-title">${highlight(job.title, titleTerms())}</span>
           <span class="job-row-company">${esc(job.company)}</span>
           <span class="job-row-meta">ID ${job.id} · ${esc(job.ats_vendor || "Unknown ATS")} · ${esc(job.employment_type || "Type n/a")}</span>
           <span class="job-row-meta">Published ${fmt(job.published_date)} · Scanned ${fmt(job.last_scanned)}</span>
@@ -53,12 +75,12 @@ function show(job) {
   const facts = [job.job_remote === true || job.job_remote === 1 || /^(true|yes|remote)$/i.test(job.job_remote) ? "Remote" : "", job.compensation_summary].filter(Boolean);
   $("job-detail").innerHTML = `
     <p class="detail-kicker">${esc(job.company)}</p>
-    <h1>${esc(job.title)}</h1>
+    <h1>${highlight(job.title, titleTerms())}</h1>
     <p class="job-facts">Job ID: ${job.id} · ATS: ${esc(job.ats_vendor || "Unknown")} · Employment type: ${esc(job.employment_type || "n/a")}</p>
     ${facts.length ? `<p class="job-facts">${esc(facts.join(" · "))}</p>` : ""}
     <p class="job-facts">Published: ${fmt(job.published_date)} · Last scanned: ${fmt(job.last_scanned)}</p>
     ${job.job_url ? `<a class="apply-link" href="${esc(job.job_url)}" target="_blank" rel="noopener">Apply</a>` : ""}
-    <section class="description-section"><div class="description">${esc(job.description || "No description available.")}</div></section>`;
+    <section class="description-section"><div class="description">${highlight(job.description || "No description available.", descriptionTerms())}</div></section>`;
   $("job-detail").querySelector(".description").style.whiteSpace = "pre-wrap";
 }
 

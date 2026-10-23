@@ -1,5 +1,6 @@
 import json
 import requests
+from logging_errors import error_code
 from pathlib import Path
 from The_Database.db_connect import database_connection_system
 from concurrent.futures import ThreadPoolExecutor
@@ -55,7 +56,7 @@ class greenhouse_main_system():
                     "ats_vendor": "Greenhouse",
                     "status": "fail",
                     "job_count": 0,
-                    "error": str(error),
+                    "error": error_code(error),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                     "jobs": [],
                 }

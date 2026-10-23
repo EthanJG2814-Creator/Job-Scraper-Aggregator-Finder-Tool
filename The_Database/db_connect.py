@@ -115,6 +115,24 @@ class database_connection_system:
         print(f'{ANSI_YELLOW} Fallback insert for Jobs: {inserted}/{len(jobs)} rows {ANSI_RESET}')
         return inserted == len(jobs)
 
+    def get_dead_slugs(self, ats_vendor):
+        """Slugs whose most recent scrape failed with 404/410 before any job was
+        listed, so the tenant or site no longer exists. They are skipped entirely;
+        a later non-dead result for the slug un-kills it."""
+        self.cursor.execute("""
+            SELECT c.slug_name
+            FROM sources s
+            JOIN companies c ON c.company_id = s.company_id
+            WHERE s.ats_vendor = ?
+              AND s.source_id = (SELECT MAX(s2.source_id) FROM sources s2
+                                 WHERE s2.company_id = s.company_id
+                                   AND s2.ats_vendor = s.ats_vendor)
+              AND s.status = 'fail'
+              AND s.error IN ('404', '410')
+              AND COALESCE(s.job_count, 0) = 0
+        """, (ats_vendor,))
+        return {row[0] for row in self.cursor.fetchall()}
+
     def get_slugs_scraped_today(self, ats_vendor):
         """Slugs finished today that should not be re-run: successes, plus
         failures whose error wasn't a 429. Partials and 429 failures are retried."""

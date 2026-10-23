@@ -2,6 +2,16 @@ from datetime import datetime, timezone
 import traceback
 
 
+def error_code(error):
+    """Short value to store for an error: the HTTP status code when the server
+    answered (e.g. "404"), otherwise the exception's class name (e.g. "Timeout").
+    Never the full message, which carries URLs and wording."""
+    response = getattr(error, "response", None)
+    if response is not None and getattr(response, "status_code", None) is not None:
+        return str(response.status_code)
+    return type(error).__name__
+
+
 # color code
 ANSI_RED = "\033[31m"
 ANSI_RESET = "\033[0m"
