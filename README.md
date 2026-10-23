@@ -1,3 +1,4 @@
+# Introduction 
 
 Job searching can be time-consuming, especially when relevant openings are
 scattered across many company career pages and job boards. This project brings
@@ -22,9 +23,7 @@ This project is still in development. The latest GitHub release may include a
 database containing more than 1.1 million previously collected postings, so
 you can start exploring existing results without waiting for a full scrape.
 
-#------------------------------------
-
-How the scraper works
+# How the scraper works
 
 ## Company configuration
 
@@ -150,7 +149,7 @@ previously collected postings without waiting for a full scrape. Without a
 release database, the program creates an empty database and tables, then
 populates them as the configured scrapers run.
 
-## Get started in VS Code
+# Get started in VS Code
 
 1. Clone the repository:
 
@@ -250,7 +249,7 @@ The following are planned improvements and are not available yet:
    correct ATS scraper. Workday will be excluded from this automatic
    cross-platform detection.
 
-## Disclaimer
+# Disclaimer
 
 This project is a job-search tool, not a comprehensive directory of every
 employer or job opening. The database may include companies outside your
@@ -260,7 +259,7 @@ Glassdoor, or Handshake. As a result, search results may be incomplete or may
 not reflect every available opening. Check an employer's official careers page
 for the latest information.
 
-## Issues and suggestions
+# Issues and suggestions
 
 If you find a bug, notice a company or job source that should be included, or
 have an idea for improving the project, please open an issue in the repository's
@@ -268,7 +267,7 @@ have an idea for improving the project, please open an issue in the repository's
 tab. Include enough detail to help reproduce the problem or understand your
 suggestion.
 
-## Acknowledgments
+# Acknowledgments
 
 Thank you to [Riley Dorrington](https://github.com/Riley-Dorrington) for the
 open-source [Job Board Aggregator project](https://github.com/Riley-Dorrington/job-board-aggregator).
