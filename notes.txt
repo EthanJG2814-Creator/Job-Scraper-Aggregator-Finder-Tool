@@ -16,3 +16,13 @@ Short description: "Theme Park Booking Specialist" really does have only a short
 Remote bug: the main panel said "Remote" for every job, because job_remote is stored as the text "N/A" in all 57,905 rows. It now only says "Remote" when the value actually means remote.
 
 Yes—5,878 of your 7,739 failures were HTTP 429 responses, roughly 76%. The main fix is to slow down requests and give the server time to recover, not immediately retry thousands of failures. Rate limiting can keep rejecting requests until its time window resets.
+
+
+need to edit the scraper that is encountering these bvarious of errors:
+working on aarome
+working on aasafetyinc
+DETAIL FAILED | 97thfloor | 35 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
+DETAIL FAILED | 97thfloor | 80 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
+DETAIL FAILED | 97thfloor | 77 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
+DETAIL FAILED | 97thfloor | 75 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
+DETAIL FAILED | 97thfloor | 73 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
