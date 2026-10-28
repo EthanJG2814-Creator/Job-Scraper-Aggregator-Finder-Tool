@@ -53,10 +53,15 @@ function shortDate(iso) {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+const TOTAL_COLOR = "#d6336c";
+
 function drawTimeline(data) {
+  const totals = data.dates.map((_, i) => data.series.reduce((sum, s) => sum + s.counts[i], 0));
+  const all = [...data.series, { name: "Total", counts: totals }];
+  const colorOf = (name) => (name === "Total" ? TOTAL_COLOR : colorFor(name));
   const W = 900, H = 340, L = 60, R = 20, T = 14, B = 36;
   const n = data.dates.length;
-  const max = niceMax(Math.max(0, ...data.series.flatMap((s) => s.counts)));
+  const max = niceMax(Math.max(0, ...totals));
   const x = (i) => L + (n > 1 ? (i / (n - 1)) * (W - L - R) : (W - L - R) / 2);
   const y = (v) => T + (1 - v / max) * (H - T - B);
 
@@ -68,23 +73,18 @@ function drawTimeline(data) {
   const step = Math.max(1, Math.ceil(n / 10));
   const labels = data.dates.map((d, i) => (i % step === 0 || i === n - 1)
     ? `<text x="${x(i)}" y="${H - 12}" text-anchor="middle">${shortDate(d)}</text>` : "").join("");
-  const lines = data.series.map((s) => {
-    const color = colorFor(s.name);
+  const lines = all.map((s) => {
+    const color = colorOf(s.name);
+    const isTotal = s.name === "Total";
     const points = s.counts.map((v, i) => `${x(i)},${y(v)}`).join(" ");
-    const dots = n <= 60 ? s.counts.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${color}"/>`).join("") : "";
-    return `<polyline fill="none" stroke="${color}" stroke-width="2" points="${points}"/>${dots}`;
+    const dots = n <= 60 ? s.counts.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="${isTotal ? 3.5 : 3}" fill="${color}"><title>${esc(s.name)} · ${shortDate(data.dates[i])}: ${v.toLocaleString()} postings</title></circle>`).join("") : "";
+    return `<polyline fill="none" stroke="${color}" stroke-width="${isTotal ? 2.5 : 2}"${isTotal ? ' stroke-dasharray="6 4"' : ""} points="${points}"/>${dots}`;
   }).join("");
 
   const chart = document.getElementById("timeline-chart");
-  chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Line chart of postings per day by ATS vendor">${grid}${labels}${lines}</svg>`;
-  document.getElementById("timeline-legend").innerHTML = data.series
-    .map((s) => `<span><i class="legend-swatch" style="background:${colorFor(s.name)}"></i>${esc(s.name)}</span>`).join("");
-  chart.querySelectorAll("circle").forEach((dot) => dot.append(Object.assign(document.createElementNS("http://www.w3.org/2000/svg", "title"))));
-  data.series.forEach((s, si) => {
-    chart.querySelectorAll(`polyline`)[si]?.setAttribute("data-vendor", s.name);
-    const dots = [...chart.querySelectorAll("circle")].filter((c) => c.getAttribute("fill") === colorFor(s.name));
-    dots.forEach((dot, i) => { dot.firstChild.textContent = `${s.name} · ${shortDate(data.dates[i])}: ${s.counts[i].toLocaleString()} postings`; });
-  });
+  chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Line chart of postings per day by ATS vendor and in total">${grid}${labels}${lines}</svg>`;
+  document.getElementById("timeline-legend").innerHTML = all
+    .map((s) => `<span><i class="legend-swatch" style="background:${colorOf(s.name)}"></i>${esc(s.name)}</span>`).join("");
 }
 
 function drawTable(data) {

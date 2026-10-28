@@ -204,13 +204,68 @@ populates them as the configured scrapers run.
    Then open <http://127.0.0.1:5000/> in your browser. Stop the website with
    `Ctrl+C` when you are finished.
 
+# How the website works
+
+The website has two pages, switched from the top bar: **Job Searcher** and
+**Job Analyst**. Both read the same SQLite database and show only *active*
+postings, meaning postings whose `last_scanned` date is within the last 3 days.
+Older postings are hidden from the website but kept in the database.
+
+## Job Searcher
+
+- **Job title.** Shows postings whose title contains the text you type. The
+  match is case-insensitive and partial, so `analyst` also finds
+  `Data Analyst II`. Matching text is highlighted in the results list and in
+  the job detail.
+- **Search description.** Searches the full job description. Separate several
+  terms with commas (for example `python, biomedical engineering`); a posting
+  must contain **every** term. Matches are case-insensitive and partial, and
+  are highlighted in the description of the selected job.
+- **Recent posting.** Limits results by how recently a job was posted: all
+  time, today, past 7 days, past 2 weeks, or past month. The posting date is
+  `published_date`; if a posting has none, the database `created_at` date is
+  used instead when that column exists. Postings with neither date are excluded
+  from every option except all time.
+- **Sort.** Orders the results:
+  - *Mixture* (default): published date (newest day first), then last scanned
+    time within the same day. Postings without a published date come last.
+  - *Published date*: newest published first.
+  - *Last scanned date*: most recently scanned first.
+- **Search, Clear and paging.** Press **Search** or `Enter` to apply the
+  filters. **×** resets all filters. Results show 25 per page; use the paging
+  buttons or type a page number. Select a posting to read its description and
+  open its application link.
+
+All filters combine, so a posting must satisfy every one to appear.
+
+## Job Analyst
+
+The analyst page is calculated live from the database, and results are cached
+for 5 minutes, so the first load can take several seconds.
+
+- **ATS vendor share (pie chart).** The percentage of active postings held by
+  each ATS vendor, with the posting count for each. Each company is assigned to
+  its most recent source record.
+- **Postings published per day (line chart).** One line per vendor showing how
+  many postings were published each day. It starts at the oldest date in the
+  `sources` table and ends today, so it grows longer as new data is collected.
+  Hover over a point to see the exact value. Days where every vendor has zero
+  postings are treated as unlogged and left out.
+- **Daily postings table.** The numbers behind the chart: one row per day
+  (newest first) with a column per vendor, a daily total, and a totals row.
+- **Daily posting statistics.** For each vendor and for all vendors combined:
+  total postings, share of all postings, average per day, median, sample
+  standard deviation, coefficient of variation (CV: standard deviation divided
+  by the average, which lets vendors of different sizes be compared), and the
+  peak and lowest days. Only logged days are included.
+
 # Future updates
 
 The following are planned improvements and are not available yet:
 
-1. **Manage inactive postings.** The aggregator currently does not remove old
+1. ~~**Manage inactive postings.** The aggregator currently does not remove old
    or inactive postings from the website. A future update will hide postings
-   that are no longer active while preserving them in the database for analysis.
+   that are no longer active while preserving them in the database for analysis.~~
 
 2. **Add job categories and filters.** The website does not yet categorize
    postings by location, employment type, career level, or whether a role is
