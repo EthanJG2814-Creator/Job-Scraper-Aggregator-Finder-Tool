@@ -1,10 +1,13 @@
-name: Run job scrapers
+name: Run job scrapers and publish database
 
 on:
   workflow_dispatch:
+  schedule:
+    # Every Wednesday at 12:17 UTC
+    - cron: "17 12 * * 3"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: job-scrapers
@@ -13,7 +16,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    timeout-minutes: 120
 
     steps:
       - name: Download repository code
@@ -31,7 +34,6 @@ jobs:
         run: python .github/workflows/github_main.py
 
       - name: Create consistent database snapshot
-        if: ${{ always() }}
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -40,27 +42,111 @@ jobs:
           source_path = Path("The_Database/job_data.db")
 
           if not source_path.is_file():
-              print("No database exists to save.")
-          else:
-              output = Path("artifacts")
-              output.mkdir(exist_ok=True)
+              raise FileNotFoundError(
+                  f"No database exists at {source_path}"
+              )
 
-              source = sqlite3.connect(source_path)
-              destination = sqlite3.connect(output / "job_data.db")
-              try:
-                  source.backup(destination)
-              finally:
-                  destination.close()
-                  source.close()
+          output = Path("artifacts")
+          output.mkdir(exist_ok=True)
+          snapshot_path = output / "job_data.db"
 
-              print("Database snapshot created.")
+          source = sqlite3.connect(
+              source_path.resolve().as_uri() + "?mode=ro",
+              uri=True,
+          )
+          destination = sqlite3.connect(snapshot_path)
+
+          try:
+              source.backup(destination)
+
+              results = [
+                  row[0]
+                  for row in destination.execute(
+                      "PRAGMA integrity_check"
+                  )
+              ]
+
+              if results != ["ok"]:
+                  raise RuntimeError(
+                      f"Database integrity check failed: {results}"
+                  )
+          finally:
+              destination.close()
+              source.close()
+
+          print(
+              f"Database snapshot created: "
+              f"{snapshot_path.stat().st_size:,} bytes"
+          )
           PY
 
-      - name: Save database snapshot
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: job-database-${{ github.run_id }}
-          path: artifacts/job_data.db
-          if-no-files-found: warn
-          retention-days: 7
+      - name: Compress database and check release size
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          database_path = Path("artifacts/job_data.db")
+          zip_path = Path("artifacts/job_data.zip")
+
+          with ZipFile(
+              zip_path,
+              mode="w",
+              compression=ZIP_DEFLATED,
+              compresslevel=6,
+              allowZip64=True,
+          ) as archive:
+              archive.write(database_path, arcname="job_data.db")
+
+          size = zip_path.stat().st_size
+          limit = 2 * 1024**3
+
+          print(
+              f"Compressed database: {size:,} bytes "
+              f"({size / 1024**3:.2f} GiB)"
+          )
+
+          if size >= limit:
+              raise RuntimeError(
+                  "The ZIP is too large for a single release asset. "
+                  "Split it into smaller files or use external storage. "
+                  "No release will be published."
+              )
+
+          database_path.unlink()
+          PY
+
+      - name: Publish database release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          DATE="$(date -u +%F)"
+          TAG="database-${DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          cat > release-notes.md <<EOF
+          Automated job database checkpoint.
+
+          ## How to use
+
+          1. Download job_data.zip.
+          2. Extract job_data.db.
+          3. Close any running scraper or application processes.
+          4. Back up your existing database before replacing it.
+          5. Place job_data.db in The_Database/.
+          6. Run the application or scraper normally.
+
+          This database is a starting checkpoint. Replacing a local
+          database does not merge its existing contents.
+
+          Snapshot date: ${DATE} UTC
+          Source commit: ${GITHUB_SHA}
+          Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+
+          gh release create "$TAG" \
+            artifacts/job_data.zip \
+            --target "$GITHUB_SHA" \
+            --title "${DATE} Database Snapshot" \
+            --notes-file release-notes.md \
+            --latest
