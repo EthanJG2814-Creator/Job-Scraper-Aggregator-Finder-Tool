@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Analyst</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">JOB / ANALYST</div>
+    <nav class="topnav" aria-label="Pages">
+      <a href="/">Job Searcher</a>
+      <a href="/analyst" aria-current="page">Job Analyst</a>
+    </nav>
+    <div class="live-indicator"><span></span> Live database</div>
+  </header>
+  <main>
+    <section class="stats-intro">
+      <div>
+        <p class="eyebrow">Job Analyst</p>
+        <h1>ATS vendor share</h1>
+        <p class="stats-subtitle">Share of active job postings (scanned in the last 3 days) by ATS vendor.</p>
+      </div>
+    </section>
+    <section class="stats-panel">
+      <div class="panel-heading">
+        <h2>Postings by ATS vendor</h2>
+        <span id="ats-total" class="panel-total">Loading…</span>
+      </div>
+      <div class="ats-content">
+        <div id="ats-pie" class="pie-chart" role="img" aria-label="Pie chart of job postings by ATS vendor"></div>
+        <div id="ats-legend" class="ats-legend"></div>
+      </div>
+      <p id="ats-error" class="statistics-error"></p>
+    </section>
+    <section class="stats-panel timeline-panel">
+      <div class="panel-heading">
+        <h2>Postings published per day by ATS vendor</h2>
+        <span id="timeline-range" class="panel-total">Loading…</span>
+      </div>
+      <div id="timeline-chart" class="timeline-chart"></div>
+      <div id="timeline-legend" class="timeline-legend"></div>
+      <div class="timeline-table-wrap"><table id="timeline-table" class="timeline-table centered"></table></div>
+      <p id="timeline-error" class="statistics-error"></p>
+    </section>
+    <section class="stats-panel timeline-panel">
+      <div class="panel-heading">
+        <h2>Daily posting statistics by ATS vendor</h2>
+        <span id="summary-range" class="panel-total"></span>
+      </div>
+      <div class="timeline-table-wrap"><table id="summary-table" class="timeline-table centered"></table></div>
+      <p class="stats-subtitle">Std. dev. is the sample standard deviation of daily postings. CV is std. dev. divided by the mean, so vendors of different sizes can be compared. Days with no data count as 0.</p>
+    </section>
+  </main>
+  <script src="/static/analyst.js"></script>
+</body>
+</html>

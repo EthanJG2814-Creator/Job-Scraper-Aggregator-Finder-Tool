@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS job_postings (
     job_url         TEXT,
     compensation_summary    TEXT,
     last_scanned            DATE,
+    created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (company_id)
         REFERENCES companies(company_id)

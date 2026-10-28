@@ -42,6 +42,7 @@ async function load() {
     title: $("title-input").value,
     description: $("description-input").value,
     sort: $("sort-filter").value,
+    recent: $("recent-filter").value,
     page,
   });
   $("job-list").innerHTML = "";
@@ -95,6 +96,7 @@ $("job-list").addEventListener("click", (event) => {
 function search() { page = 1; load(); }
 $("search-button").addEventListener("click", search);
 $("sort-filter").addEventListener("change", search);
+$("recent-filter").addEventListener("change", search);
 for (const id of ["title-input", "description-input"]) {
   $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
 }
@@ -102,6 +104,7 @@ $("clear-button").addEventListener("click", () => {
   $("title-input").value = "";
   $("description-input").value = "";
   $("sort-filter").value = "mixed";
+  $("recent-filter").value = "all";
   search();
 });
 $("previous-page").addEventListener("click", () => { if (page > 1) { page--; load(); } });
