@@ -133,13 +133,18 @@ def search_jobs(params):
             where.append(f"julianday({posted}) >= julianday('now', '-{RECENT_DAYS[recent]} days')")
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         total = conn.execute(f"SELECT COUNT(*) FROM job_postings j {clause}", args).fetchone()[0]
+        # Page the postings first, then look up each page row's latest source;
+        # joining before sorting made the unfiltered query far too slow.
         rows = conn.execute(
             f"""SELECT j.job_posting_id AS id, s.ats_vendor, j.job_title AS title, c.slug_name AS company,
                        j.published_date, j.last_scanned, j.employment_type, j.job_remote,
                        j.compensation_summary, j.job_url, j.job_description AS description
-                FROM job_postings j LEFT JOIN companies c ON c.company_id = j.company_id
-                LEFT JOIN sources s ON s.company_id = j.company_id
-                {clause} ORDER BY {order}, j.job_posting_id DESC LIMIT ? OFFSET ?""",
+                FROM (SELECT j.* FROM job_postings j {clause}
+                      ORDER BY {order}, j.job_posting_id DESC LIMIT ? OFFSET ?) j
+                LEFT JOIN companies c ON c.company_id = j.company_id
+                LEFT JOIN sources s ON s.source_id =
+                     (SELECT MAX(source_id) FROM sources WHERE company_id = j.company_id)
+                ORDER BY {order}, j.job_posting_id DESC""",
             args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
         ).fetchall()
     return {

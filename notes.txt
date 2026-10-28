@@ -26,3 +26,7 @@ DETAIL FAILED | 97thfloor | 80 | HTTPSConnectionPool(host='97thfloor.bamboohr.co
 DETAIL FAILED | 97thfloor | 77 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
 DETAIL FAILED | 97thfloor | 75 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
 DETAIL FAILED | 97thfloor | 73 | HTTPSConnectionPool(host='97thfloor.bamboohr.com', port=443): Read timed out. (read timeout=30)
+
+Fixed in app.py. The search now joins only each company's latest sources row, so a posting no longer repeats once per scan. The "Chief Engineer, Software" search now returns two different postings (IDs 662013 and 570780) instead of the same one three times.
+
+The 3-day rule was already in place. A posting whose last_scanned is more than 3 days old is hidden, and the filter checks that date against the system clock. Restart the server on port 5000 to pick up the change.
