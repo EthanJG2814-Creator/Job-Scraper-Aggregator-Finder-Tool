@@ -6,7 +6,7 @@
   <title>Job Searcher</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
-  <style>.searchbar { grid-template-columns: 1.4fr 1.6fr 1fr 1fr auto; }#page-input { width: 70px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 3px; font: inherit; text-align: center; background: #fff; }
+  <style>.searchbar { grid-template-columns: 1.4fr 1.6fr 1fr 1fr 1fr auto; }#page-input { width: 70px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 3px; font: inherit; text-align: center; background: #fff; }
     #page-label { white-space: nowrap; }
     .pagination button:disabled { opacity: .4; cursor: default; }
   </style>
@@ -29,6 +29,18 @@
       <label>
         <span>Search description</span>
         <input id="description-input" type="search" placeholder="e.g. python, biomedical engineering">
+      </label>
+      <label>
+        <span>ATS vendor</span>
+        <select id="vendor-filter">
+          <option value="all">All vendors</option>
+          <option>Ashby</option>
+          <option>BambooHR</option>
+          <option>Greenhouse</option>
+          <option>iCIMS</option>
+          <option>Lever</option>
+          <option>Workday</option>
+        </select>
       </label>
       <label>
         <span>Recent posting</span>

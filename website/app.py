@@ -103,6 +103,7 @@ def search_jobs(params):
     description = params.get("description", [""])[0]
     sort = params.get("sort", ["mixed"])[0]
     recent = params.get("recent", ["all"])[0]
+    vendor = params.get("vendor", ["all"])[0]
     try:
         page = max(1, int(params.get("page", ["1"])[0]))
     except ValueError:
@@ -131,6 +132,15 @@ def search_jobs(params):
             where.append(f"date({posted}, 'localtime') = date('now', 'localtime')")
         elif recent in RECENT_DAYS:
             where.append(f"julianday({posted}) >= julianday('now', '-{RECENT_DAYS[recent]} days')")
+        if vendor != "all":
+            ids = [r[0] for r in conn.execute(
+                """SELECT s.company_id FROM sources s
+                   JOIN (SELECT MAX(source_id) AS sid FROM sources GROUP BY company_id) m
+                     ON s.source_id = m.sid
+                   WHERE s.ats_vendor = ?""",
+                (vendor,),
+            )]
+            where.append(f"j.company_id IN ({','.join(str(int(i)) for i in ids) or 'NULL'})")
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         total = conn.execute(f"SELECT COUNT(*) FROM job_postings j {clause}", args).fetchone()[0]
         # Page the postings first, then look up each page row's latest source;
@@ -139,8 +149,9 @@ def search_jobs(params):
             f"""SELECT j.job_posting_id AS id, s.ats_vendor, j.job_title AS title, c.slug_name AS company,
                        j.published_date, j.last_scanned, j.employment_type, j.job_remote,
                        j.compensation_summary, j.job_url, j.job_description AS description
-                FROM (SELECT j.* FROM job_postings j {clause}
-                      ORDER BY {order}, j.job_posting_id DESC LIMIT ? OFFSET ?) j
+                FROM (SELECT j.job_posting_id AS pid FROM job_postings j {clause}
+                      ORDER BY {order}, j.job_posting_id DESC LIMIT ? OFFSET ?) p
+                JOIN job_postings j ON j.job_posting_id = p.pid
                 LEFT JOIN companies c ON c.company_id = j.company_id
                 LEFT JOIN sources s ON s.source_id =
                      (SELECT MAX(source_id) FROM sources WHERE company_id = j.company_id)
