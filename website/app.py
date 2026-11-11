@@ -5,6 +5,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import pycountry
+
 WEBSITE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = WEBSITE_DIR.parent / "The_Database" / "job_data.db"
 PAGE_SIZE = 25
@@ -98,12 +100,83 @@ def escape_like(term):
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def location_options():
+    with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='locations'").fetchone():
+            return {"available": False, "countries": []}
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(locations)")}
+        if not {"country", "state_abbv", "city_name"} <= columns:
+            raise sqlite3.DatabaseError("The locations table is missing required columns")
+        rows = conn.execute("""
+            SELECT DISTINCT country, state_abbv, city_name FROM locations
+            WHERE country IS NOT NULL AND country != ''
+            ORDER BY country, state_abbv, city_name
+        """).fetchall()
+    countries = {}
+    state_names = {subdivision.code: subdivision.name for subdivision in pycountry.subdivisions
+                   if subdivision.country_code in ("US", "CA")}
+    for country, state, city in rows:
+        item = countries.setdefault(country, {"code": country, "states": {}, "state_names": {}, "cities": []})
+        if state:
+            cities = item["states"].setdefault(state, [])
+            item["state_names"][state] = state_names.get(f"{country}-{state}", state)
+            if city:
+                cities.append(city)
+        elif city:
+            item["cities"].append(city)
+    return {"available": True, "countries": list(countries.values())}
+
+
+def location_condition(value):
+    try:
+        selections = json.loads(value)
+    except (ValueError, TypeError) as error:
+        raise ValueError("Invalid location filter JSON") from error
+    if not isinstance(selections, list) or not selections:
+        raise ValueError("Location filter must be a non-empty list")
+    clauses, args = [], []
+    for selection in selections:
+        if not isinstance(selection, dict):
+            raise ValueError("Invalid country selection")
+        country = selection.get("country")
+        states = selection.get("states", {})
+        cities = selection.get("cities", [])
+        if (not isinstance(country, str) or not country.strip()
+                or not isinstance(states, dict) or not isinstance(cities, list)
+                or (states and cities)):
+            raise ValueError("Invalid country, state, or city selection")
+        if any(not isinstance(city, str) or not city.strip() for city in cities):
+            raise ValueError("Invalid city selection")
+        parts = ["l.country = ?"]
+        args.append(country)
+        state_clauses = []
+        for state, state_cities in states.items():
+            if (not isinstance(state, str) or not state.strip()
+                    or not isinstance(state_cities, list)
+                    or any(not isinstance(city, str) or not city.strip() for city in state_cities)):
+                raise ValueError("Invalid state or city selection")
+            state_clause = "l.state_abbv = ?"
+            args.append(state)
+            if state_cities:
+                state_clause += f" AND l.city_name IN ({','.join('?' for _ in state_cities)})"
+                args.extend(state_cities)
+            state_clauses.append(f"({state_clause})")
+        if state_clauses:
+            parts.append(f"({' OR '.join(state_clauses)})")
+        elif cities:
+            parts.append(f"l.city_name IN ({','.join('?' for _ in cities)})")
+            args.extend(cities)
+        clauses.append(f"({' AND '.join(parts)})")
+    return "j.job_posting_id IN (SELECT l.job_posting_id FROM locations l WHERE " + " OR ".join(clauses) + ")", args
+
+
 def search_jobs(params):
     title = params.get("title", [""])[0].strip()
     description = params.get("description", [""])[0]
     sort = params.get("sort", ["mixed"])[0]
     recent = params.get("recent", ["all"])[0]
     vendor = params.get("vendor", ["all"])[0]
+    location = params.get("location", [""])[0]
     try:
         page = max(1, int(params.get("page", ["1"])[0]))
     except ValueError:
@@ -122,6 +195,10 @@ def search_jobs(params):
 
     with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
         conn.row_factory = sqlite3.Row
+        if location:
+            condition, location_args = location_condition(location)
+            where.append(condition)
+            args.extend(location_args)
         # Posting date falls back to created_at; until the column exists in the
         # database, only published_date is used.
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(job_postings)")}
@@ -158,11 +235,35 @@ def search_jobs(params):
                 ORDER BY {order}, j.job_posting_id DESC""",
             args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
         ).fetchall()
+        jobs = [dict(row) for row in rows]
+        has_locations = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='locations'"
+        ).fetchone()
+        if has_locations and jobs:
+            ids = [job["id"] for job in jobs]
+            location_columns = {row["name"] for row in conn.execute("PRAGMA table_info(locations)")}
+            remote = "is_remote" if "is_remote" in location_columns else "0 AS is_remote"
+            hybrid = "is_hybrid" if "is_hybrid" in location_columns else "0 AS is_hybrid"
+            location_rows = conn.execute(
+                f"""SELECT DISTINCT job_posting_id, city_name, state_abbv, country, {remote}, {hybrid}
+                    FROM locations WHERE job_posting_id IN ({','.join('?' for _ in ids)})
+                    ORDER BY country, state_abbv, city_name""", ids
+            ).fetchall()
+            by_job = {}
+            for row in location_rows:
+                by_job.setdefault(row["job_posting_id"], []).append({
+                    name: row[name] for name in ("city_name", "state_abbv", "country", "is_remote", "is_hybrid")
+                })
+            for job in jobs:
+                job["locations"] = by_job.get(job["id"], [])
+        else:
+            for job in jobs:
+                job["locations"] = []
     return {
         "total": total,
         "page": page,
         "pages": max(1, -(-total // PAGE_SIZE)),
-        "jobs": [dict(r) for r in rows],
+        "jobs": jobs,
     }
 
 
@@ -192,6 +293,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_bytes(200, json.dumps(posting_timeline()).encode(), "application/json")
             except sqlite3.Error as error:
                 self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+        elif url.path == "/api/location-options":
+            try:
+                self.send_bytes(200, json.dumps(location_options()).encode(), "application/json")
+            except sqlite3.Error as error:
+                self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
         elif url.path == "/static/styles.css":
             self.send_bytes(200, (WEBSITE_DIR / "static" / "styles.css").read_bytes(), "text/css")
         elif url.path == "/static/app.js":
@@ -200,6 +306,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 body = json.dumps(search_jobs(parse_qs(url.query))).encode()
                 self.send_bytes(200, body, "application/json")
+            except ValueError as error:
+                self.send_bytes(400, json.dumps({"error": str(error)}).encode(), "application/json")
             except sqlite3.Error as error:
                 self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
         else:

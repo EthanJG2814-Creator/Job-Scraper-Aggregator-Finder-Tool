@@ -6,7 +6,7 @@
   <title>Job Searcher</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
-  <style>.searchbar { grid-template-columns: 1.4fr 1.6fr 1fr 1fr 1fr auto; }#page-input { width: 70px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 3px; font: inherit; text-align: center; background: #fff; }
+  <style>#page-input { width: 70px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 3px; font: inherit; text-align: center; background: #fff; }
     #page-label { white-space: nowrap; }
     .pagination button:disabled { opacity: .4; cursor: default; }
   </style>
@@ -60,6 +60,18 @@
           <option value="scanned">Last scanned date</option>
         </select>
       </label>
+      <div class="location-filter">
+        <span class="filter-label">Location</span>
+        <details id="location-dropdown">
+          <summary id="location-summary">All locations</summary>
+          <div class="location-menu">
+            <p class="location-help">Select countries, then optionally states and cities. No selection within a country or state includes all its locations.</p>
+            <p class="location-help">Only jobs with matching parsed locations are included when filtering.</p>
+            <h2 class="location-section-heading">Select country</h2>
+            <div id="location-options" aria-live="polite">Loading locations…</div>
+          </div>
+        </details>
+      </div>
       <button id="search-button" type="button">Search</button>
     </section>
 
