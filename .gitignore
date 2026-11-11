@@ -28,3 +28,10 @@ chrome_profile/
 .DS_Store
 Thumbs.db
 errors.txt
+
+# Downloaded GeoNames data
+Jobs/Locations/cities15000.txt
+Jobs/Locations/cities5000.txt
+
+# Files for testing
+test/
