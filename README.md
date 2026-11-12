@@ -1,3 +1,6 @@
+![Preview of the job search website](images/job-search-preview.png)
+
+
 # Introduction 
 
 Job searching can be time-consuming, especially when relevant openings are
@@ -299,13 +302,13 @@ The following are planned improvements and are not available yet:
    matching and machine learning to classify postings and help users find
    relevant opportunities.
 
-   Location classification will require extra care: companies use many
+   ~Location classification will require extra care: companies use many
    different formats for locations, and each applicant-tracking system may
    structure location data differently. The goal is to normalize locations
    consistently, including locations around the world. Career-level
    classification (such as entry, intermediate, and senior) will also require
    testing and refinement, since job descriptions and employer labels are not
-   always consistent.
+   always consistent.~
 
 3. **Expand coverage to hospital jobs.** Hospital roles are not currently
    included. A future scraper could collect hospital job listings across the
