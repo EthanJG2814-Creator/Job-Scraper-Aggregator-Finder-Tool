@@ -48,7 +48,10 @@ endpoints, process multiple company slugs concurrently, and collect the
 resulting records for batch database writes. BambooHR also makes detail
 requests for individual listings so it can retrieve the full posting
 information. iCIMS follows a different path: it discovers job URLs through
-company sitemaps and fetches each posting page to extract its description.
+company sitemaps and fetches each posting page for its description and locations.
+Completed iCIMS companies are saved in batches of 25, so a later failure does
+not roll back earlier saved batches. Duplicate posting URLs in a batch share
+their collected raw locations; conflicting vendor IDs are logged as an error.
 
 The Workday implementation is separate because its listings are paginated and
 its endpoints may rate-limit requests. It retrieves pages for each company,
@@ -142,12 +145,25 @@ executes `The_Database/sql_code/Table_Create.sql`. The schema uses
 replacing existing tables or their contents. It then runs Ashby, Lever,
 Greenhouse, and BambooHR in sequence, processes iCIMS company slugs in parallel
 chunks, and runs Workday after iCIMS completes. If a scraper process fails, the
-remaining modules are not started.
+remaining modules are not started. After all scrapers finish successfully,
+`Main.py` runs the location parser for all supported vendors to clean newly
+collected locations. The [GeoNames](https://download.geonames.org/export/dump/)
+`cities15000.txt` file must be available in `Jobs/Locations/`;
+a parser failure makes the overall run fail. The parser can also be run
+separately using the command below.
 
 You can optionally begin with `job_data.db` from a GitHub release to search
 previously collected postings without waiting for a full scrape. Without a
 release database, the program creates an empty database and tables, then
 populates them as the configured scrapers run.
+
+### ATS vendor locations
+
+The scrapers extract job locations from Greenhouse, Ashby, Lever, BambooHR,
+iCIMS, and Workday, including multiple locations when available. They collect
+location information from each vendor's job listings or detail pages and save
+it in the database linked to each posting. A parser then uses geographic rules
+and an offline GeoNames city database to clean the locations for search filters.
 
 # Get started in VS Code
 
@@ -213,6 +229,16 @@ Older postings are hidden from the website but kept in the database.
 
 ## Job Searcher
 
+- **Location.** Open the Location dropdown and select one or more countries.
+  Leave states and cities unchecked to include the whole country. For countries
+  with state or province data, select states to narrow the results, then select
+  cities within those states if desired; leaving cities unchecked includes all
+  locations in that state. Countries without state data offer their cities
+  directly. Select Search to apply the choices; Clear filters resets them.
+  Results must have a matching resolved location row. Unknown, unparsed and
+  unresolved locations are excluded when filtering, as are remote-only rows
+  without a country. Postings without location data remain visible when no
+  location filter is applied.
 - **Job title.** Shows postings whose title contains the text you type. The
   match is case-insensitive and partial, so `analyst` also finds
   `Data Analyst II`. Matching text is highlighted in the results list and in

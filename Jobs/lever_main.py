@@ -3,6 +3,7 @@ import requests
 from logging_errors import error_code
 from pathlib import Path
 from The_Database.db_connect import database_connection_system
+from Jobs.Locations.locations_func import lever_raw_locations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -43,10 +44,20 @@ class lever_algor():
         company_slug_map = self.database.get_company_slug_map()
         scrape_logs_rows = [] 
         job_rows = []
+        location_rows = []
+        location_contexts = []
+        incomplete_location_urls = set()
+        workplace_types = {}
 
         for result in results:
             slug = result.get("company_slug")
             company_id = company_slug_map.get(slug)
+            if company_id is None:
+                error = ValueError(f"Missing company_id for slug: {slug}")
+                self.database.log_errors.location_error(
+                    error, "Lever company lookup", "Lever", [{"company": slug}]
+                )
+                raise error
 
             scrape_logs_rows.append((
                 company_id,
@@ -57,6 +68,35 @@ class lever_algor():
             ))
 
             for job in result.get("jobs",[]):
+                url = job.get("applyUrl")
+                vendor_job_id = job.get("id")
+                context = {
+                    "company": slug, "company_id": company_id,
+                    "vendor_job_id": vendor_job_id, "url": url,
+                    "categories": job.get("categories"), "workplaceType": job.get("workplaceType"),
+                }
+                if not isinstance(url, str) or not url.strip():
+                    self.database.log_errors.location_error(
+                        ValueError("Lever job is missing its application URL"),
+                        "Lever job preparation", "Lever", [context]
+                    )
+                    continue
+                if vendor_job_id is None:
+                    vendor_job_id = url
+                raw_locations, issues = lever_raw_locations(job)
+                if issues:
+                    self.database.log_errors.location_error(
+                        ValueError("; ".join(issues)), "Lever incomplete location", "Lever", [context]
+                    )
+                    incomplete_location_urls.add(url)
+                location_contexts.append(context)
+                location_rows.append((url, str(vendor_job_id), raw_locations))
+                workplace = job.get("workplaceType")
+                if isinstance(workplace, str):
+                    normalized = {"remote": "Remote", "hybrid": "Hybrid",
+                                  "onsite": "OnSite", "on-site": "OnSite"}.get(workplace.casefold())
+                    if normalized:
+                        workplace_types[url] = normalized
 
                 job_salary = self.get_salary(job)
 
@@ -67,13 +107,16 @@ class lever_algor():
                     job.get("descriptionPlain"), # This is to get the job description
                     self.get_original_published_date(job.get("createdAt")), # this is to get the original date this job posting was published
                     job.get("commitment"), # this is to get the type of employment full time or part time, sometimes remote
-                    job.get("applyUrl"), # this is the job posting url
+                    url, # this is the job posting url
                     job_salary, # this is the salary range
                     datetime.now().astimezone().isoformat(timespec="seconds") # this will update everytimne we ping a particular job posting
                 ))
 
         self.database.bulk_insert_scrape_logs(scrape_logs_rows)
-        self.database.bulk_insert_job_possting(job_rows,"Lever")
+        self.database.bulk_insert_jobs_with_locations(
+            job_rows, location_rows, "Lever", location_contexts,
+            incomplete_location_urls, workplace_types,
+        )
 
 
     def slug_processing(self,slug):

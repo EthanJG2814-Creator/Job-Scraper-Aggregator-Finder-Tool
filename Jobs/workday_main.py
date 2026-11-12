@@ -1,4 +1,5 @@
 import itertools
+import argparse
 import json
 import re
 import random
@@ -13,6 +14,7 @@ from lxml import html as lxml_html
 from requests.adapters import HTTPAdapter
 from The_Database.db_connect import database_connection_system
 from logging_errors import error_code
+from Jobs.Locations.locations_func import workday_raw_locations
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 workday_COMPANIES_PATH = PROJECT_ROOT / "Jobs" / "companies" / "workday.json"
@@ -276,9 +278,9 @@ class workday_algor:
         for slug in self.list_of_slugs:
             self.database.logging_slugs(slug, "Workday")
 
-    def data_aquasition(self):
+    def data_aquasition(self, backfill_locations=False):
         company_map = self.database.get_company_slug_map()
-        done_today = self.database.get_slugs_scraped_today("Workday")
+        done_today = set() if backfill_locations else self.database.get_slugs_scraped_today("Workday")
         dead = self.database.get_dead_slugs("Workday")
         before = len(self.list_of_slugs)
         self.list_of_slugs = [s for s in self.list_of_slugs
@@ -289,6 +291,7 @@ class workday_algor:
         total = len(self.list_of_slugs)
         # Loaded here because SQLite connections can't be used from worker threads.
         self.known_urls = self.database.get_known_job_urls()
+        self.located_urls = self.database.get_urls_with_complete_locations("Workday")
         processed = 0
 
         # Keep only a bounded window of slugs in flight. Holding every future (as
@@ -352,7 +355,6 @@ class workday_algor:
                     error, "drain_save_queue", "Workday", slug, "")
 
     def save_jobs(self, company_id, jobs, known_urls):
-        saved = True
         scanned = datetime.now().astimezone().isoformat(timespec="seconds")
         if jobs:
             job_rows = [(
@@ -361,15 +363,30 @@ class workday_algor:
                 job["employment_type"], job["job_url"],
                 job["compensation_summary"], scanned,
             ) for job in jobs]
-            saved = self.database.bulk_insert_job_possting(job_rows, "Workday")
+            locations = [(job["job_url"], job["vendor_job_id"], job["raw_locations"]) for job in jobs]
+            incomplete = {job["job_url"] for job in jobs if job["location_issues"]}
+            workplace_types = {job["job_url"]: job["workplace_type"] for job in jobs
+                               if job["workplace_type"]}
+            contexts = [{"company_id": company_id, "company": job["company_slug"],
+                         "vendor_job_id": job["vendor_job_id"], "url": job["job_url"],
+                         "location": job["raw_locations"]} for job in jobs]
+            self.database.bulk_insert_jobs_with_locations(
+                job_rows, locations, "Workday", contexts, incomplete, workplace_types,
+                track_completeness=True,
+            )
             self.known_urls.update(job["job_url"] for job in jobs)
+            self.located_urls.difference_update(incomplete)
+            self.located_urls.update(job["job_url"] for job in jobs if not job["location_issues"])
         if known_urls:
             self.database.bulk_touch_job_postings(known_urls, scanned)
-        return saved
+        return True
 
     def save_result(self, company_map, result):
         """Logs the finished slug. Its jobs were already saved page by page."""
         company_id = company_map[result["company_slug"]]
+        if result["company_slug"] in self.failed_saves:
+            result["status"] = "partial"
+            result["error"] = result["error"] or "LocationSaveFailed"
         self.database.bulk_insert_scrape_logs([(
             company_id, result["ats_vendor"], result["status"],
             result["job_count"], result["error"],
@@ -410,16 +427,35 @@ class workday_algor:
                     new_jobs += 1
                     job_url = f"{base_url}/{site_id}{path}"
                     # Already stored: the listing proves it is still live.
-                    if job_url in self.known_urls:
+                    if job_url in self.known_urls and job_url in self.located_urls:
                         known_urls.append(job_url)
                         continue
                     try:
-                        jobs.append(self.get_job_detail(
+                        detail = self.get_job_detail(
                             f"{site_api}{path}", job_url, job, headers, ctx,
-                        ))
+                        )
+                        detail["company_slug"] = slug
+                        detail["vendor_job_id"] = path.rsplit("/", 1)[-1] or job_url
+                        if detail["location_issues"]:
+                            error_type = error_type or "IncompleteLocation"
+                            self.database.log_errors.location_error(
+                                ValueError("; ".join(detail["location_issues"])),
+                                "Workday incomplete location", "Workday",
+                                [{"company": slug, "vendor_job_id": detail["vendor_job_id"],
+                                  "url": job_url, "location": detail["raw_locations"],
+                                  "listing_location": job.get("locationsText")}],
+                            )
+                        jobs.append(detail)
                         jobs_found += 1
                     except ERRORS as error:
                         error_type = error_type or error_code(error)
+                        self.database.log_errors.location_error(
+                            error, "Workday job detail", "Workday",
+                            [{"company": slug, "vendor_job_id": path.rsplit("/", 1)[-1],
+                              "url": job_url, "location": job.get("locationsText")}],
+                        )
+                        if job_url in self.known_urls:
+                            known_urls.append(job_url)
                 # Hand the page to the main thread to save, then forget it.
                 if jobs or known_urls:
                     self.save_queue.put((slug, jobs, known_urls))
@@ -439,7 +475,7 @@ class workday_algor:
         return {
             "company_slug": slug, "ats_vendor": "Workday",
             "status": ("success" if error_type is None
-                       else "partial" if jobs_found else "fail"),
+                       else "partial" if seen_paths else "fail"),
             "job_count": len(seen_paths), "error": error_type,
             "hit_429": ctx["hit_429"],
         }
@@ -456,6 +492,10 @@ class workday_algor:
         remote = bool(re.search(r"\bremote\b", remote_label, re.I))
         if re.search(r"\b(?:non[- ]?remote|not remote)\b", remote_label, re.I):
             remote = False
+        workplace_type = self.get_workplace_type(info.get("remoteType"), summary.get("remoteType"))
+        raw_locations, location_issues = workday_raw_locations(info, summary)
+        if not raw_locations and workplace_type == "Remote" and location_issues == ["No location was supplied"]:
+            raw_locations, location_issues = ["Remote"], []
 
         return {
             "job_title": title, "job_remote": int(remote),
@@ -465,7 +505,22 @@ class workday_algor:
             ),
             "employment_type": employment_type, "job_url": job_url,
             "compensation_summary": self.get_salary(description),
+            "raw_locations": raw_locations, "location_issues": location_issues,
+            "workplace_type": workplace_type,
         }
+
+    @staticmethod
+    def get_workplace_type(*labels):
+        for label in labels:
+            if not isinstance(label, str):
+                continue
+            if re.search(r"\bhybrid\b", label, re.I):
+                return "Hybrid"
+            if re.search(r"\b(?:non[- ]?remote|not remote)\b", label, re.I):
+                return "OnSite"
+            if re.search(r"\bremote\b", label, re.I):
+                return "Remote"
+        return None
 
     def get_salary(self, description):
         match = SALARY_PATTERN.search(description)
@@ -510,9 +565,13 @@ class workday_algor:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Scrape Workday jobs and locations.")
+    parser.add_argument("--backfill-locations", action="store_true",
+                        help="Revisit boards scraped today to collect missing locations.")
+    args = parser.parse_args()
     workday_system = workday_algor()
     workday_system.load_company_slugs()
-    workday_system.data_aquasition()
+    workday_system.data_aquasition(backfill_locations=args.backfill_locations)
 
 
 if __name__ == "__main__":

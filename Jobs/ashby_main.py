@@ -3,6 +3,7 @@ import requests
 from logging_errors import error_code
 from pathlib import Path
 from The_Database.db_connect import database_connection_system
+from Jobs.Locations.locations_func import ashby_raw_locations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -69,10 +70,20 @@ class Ashby_Algor():
         company_slug_map = self.database.get_company_slug_map()
         scrape_log_rows = []
         job_rows = []
+        location_rows = []
+        location_contexts = []
+        incomplete_location_urls = set()
+        workplace_types = {}
 
         for result in results:
             slug = result.get("company_slug")
             company_id = company_slug_map.get(slug)
+            if company_id is None:
+                error = ValueError(f"Missing company_id for slug: {slug}")
+                self.database.log_errors.location_error(
+                    error, "Ashby company lookup", "Ashby", [{"company": slug}]
+                )
+                raise error
 
             scrape_log_rows.append((
                 company_id,
@@ -83,6 +94,34 @@ class Ashby_Algor():
             ))
 
             for job in result.get("jobs",[]):
+                url = job.get("jobUrl")
+                vendor_job_id = job.get("id")
+                context = {
+                    "company": slug, "company_id": company_id,
+                    "vendor_job_id": vendor_job_id, "url": url,
+                    "location": job.get("location"), "secondaryLocations": job.get("secondaryLocations"),
+                    "workplaceType": job.get("workplaceType"),
+                }
+                if not isinstance(url, str) or not url.strip():
+                    self.database.log_errors.location_error(
+                        ValueError("Ashby job is missing its job URL"),
+                        "Ashby job preparation", "Ashby", [context]
+                    )
+                    continue
+                if vendor_job_id is None:
+                    # The documented posting response does not guarantee an ID.
+                    vendor_job_id = url
+                raw_locations, issues = ashby_raw_locations(job)
+                if issues:
+                    self.database.log_errors.location_error(
+                        ValueError("; ".join(issues)), "Ashby incomplete location", "Ashby", [context]
+                    )
+                    incomplete_location_urls.add(url)
+                location_contexts.append(context)
+                location_rows.append((url, str(vendor_job_id), raw_locations))
+                workplace = job.get("workplaceType")
+                if workplace in ("Remote", "Hybrid", "OnSite"):
+                    workplace_types[url] = workplace
                 job_rows.append((
                     company_id,
                     job.get("title"),
@@ -90,13 +129,16 @@ class Ashby_Algor():
                     job.get("descriptionPlain"),
                     job.get("publishedAt"),
                     job.get("employmentType"),
-                    job.get("jobUrl"),
-                    job.get("compensation",{}).get("compensationTierSummary"),
+                    url,
+                    (job.get("compensation") or {}).get("compensationTierSummary"),
                     datetime.now().astimezone().isoformat(timespec="seconds")
                 ))
 
         self.database.bulk_insert_scrape_logs(scrape_log_rows)
-        self.database.bulk_insert_job_possting(job_rows,"Ashby")
+        self.database.bulk_insert_jobs_with_locations(
+            job_rows, location_rows, "Ashby", location_contexts,
+            incomplete_location_urls, workplace_types,
+        )
 
 
 def main():

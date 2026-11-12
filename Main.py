@@ -91,6 +91,14 @@ def run_scrapers():
 
     print("\nAll scrapers finished successfully.", flush=True)
 
+    print("\nStarting location parser for all vendors", flush=True)
+    subprocess.run(
+        [sys.executable, "-u", "-m", "Jobs.Locations.locations_func"],
+        cwd=PROJECT_ROOT,
+        check=True,
+    )
+    print("Finished location parser for all vendors", flush=True)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -111,8 +119,8 @@ def main():
 
     except subprocess.CalledProcessError as error:
         print(
-            f"\nScraper failed with exit code {error.returncode}. "
-            "Remaining scrapers were not started.",
+            f"\nScraper or location parser failed with exit code {error.returncode}. "
+            "The run did not complete successfully.",
             file=sys.stderr,
             flush=True,
         )

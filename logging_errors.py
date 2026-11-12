@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 import traceback
 
 
@@ -43,6 +44,17 @@ class Error_Log_system ():
         with open("errors.txt", "a", encoding="utf-8") as file:
             file.write("\n\n\n" + new_section)
 
+    def location_error(self, error, section, ats_vendor, contexts):
+        """Log location failure context; batch entries are candidates, not proven causes."""
+        details = "\n".join(
+            json.dumps(context, ensure_ascii=False, default=str) for context in contexts
+        )
+        self.catching_errors(
+            f"{type(error).__name__}: {error}\nLocation context:\n{details or 'Unavailable'}",
+            section,
+            ats_vendor,
+        )
+
     def icims_error_catching(self,error_var,job_url):
         time_of_error = datetime.now().astimezone().isoformat(timespec="seconds")
         error_log = f'{time_of_error}\nwe caught a description error with ICIMS\nthis is the error code: {error_var}\n this is the job causing the problem{job_url}'
@@ -57,5 +69,4 @@ class Error_Log_system ():
         self.catching_errors(f"{type(error).__name__}: {error}\n{details}", section, ats_vendor, slug_name)
         label = f"{progress} " if progress else ""
         print(f'{ANSI_RED}{label}unexpected error, continuing | {slug_name} | {type(error).__name__}: {error}{ANSI_RESET}')
-
 

@@ -3,12 +3,13 @@ import requests
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit, parse_qs, urlsplit, urlunsplit, parse_qsl, urlencode
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 from logging_errors import Error_Log_system, error_code
 
 from The_Database.db_connect import database_connection_system
+from Jobs.Locations.locations_func import icims_raw_locations
 
 # color code
 ANSI_RED = "\033[31m"
@@ -19,6 +20,7 @@ ANSI_ORANGE = "\033[38;5;208m"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ICIMS_COMPANIES_PATH = PROJECT_ROOT / "Jobs" / "companies" / "icims.json"
+RESULT_BATCH_SIZE = 25
 
 HEADERS = {
     "User-Agent": (
@@ -48,7 +50,7 @@ class icims_main_system:
 
         return list_of_slugs
 
-    def _fetch_job_description(self, job_url, session):
+    def _fetch_job_details(self, job_url, session):
         try:
             # Preserve existing query parameters, but set in_iframe=1.
             url_parts = urlsplit(job_url)
@@ -63,12 +65,13 @@ class icims_main_system:
             response.raise_for_status()
 
             soup = BeautifulSoup(response.text, "html.parser")
+            locations, location_issues, workplace_type = icims_raw_locations(soup)
 
             content = soup.select_one(".iCIMS_JobContent")
 
-            if content is None or "":
+            if content is None:
                 self.logging_errors.icims_error_catching("The description is none!", job_url)
-                return "N/a"
+                return "N/a", locations, location_issues, workplace_type
 
             # Collect the section headings and their description bodies.
             sections = content.select(
@@ -89,14 +92,14 @@ class icims_main_system:
 
             description = "\n\n".join(description_parts)
 
-            if description is "":
+            if not description:
                 self.logging_errors.icims_error_catching("empty string snuck by the system", job_url)
 
-            return description
+            return description, locations, location_issues, workplace_type
 
         except requests.RequestException as error:
             self.logging_errors.icims_error_catching(error,job_url)
-            return "N/A"
+            return "N/A", [], [f"Job detail request failed: {error}"], None
 
     def _fetch_sitemap_urls(self, sitemap_url, session, visited=None):
         if visited is None:
@@ -171,13 +174,17 @@ class icims_main_system:
 
             seen_job_ids.add(job_id)
 
+            description, locations, location_issues, workplace_type = self._fetch_job_details(job_url, session)
             jobs.append(
                 {
                     "id": job_id,
                     "title": title,
                     "remote": False,
-                    "description": self._fetch_job_description(job_url, session),
+                    "description": description,
                     "url": job_url,
+                    "locations": locations,
+                    "location_issues": location_issues,
+                    "workplace_type": workplace_type,
                 }
             )
 
@@ -190,7 +197,7 @@ class icims_main_system:
             f"https://careers-{slug}.icims.com/sitemap.xml",
             f"https://jobs-{slug}.icims.com/sitemap.xml",]
 
-        jobs = []
+        jobs_by_id = {}
         errors = []
         completed_sitemaps = 0
 
@@ -199,12 +206,15 @@ class icims_main_system:
 
             for sitemap_url in sitemap_urls:
                 try:
-                    jobs = self._fetch_sitemap_jobs(sitemap_url, session)
+                    sitemap_jobs = self._fetch_sitemap_jobs(sitemap_url, session)
+                    for job in sitemap_jobs:
+                        jobs_by_id[job["id"]] = job
                     completed_sitemaps += 1
 
                 except (requests.RequestException, ET.ParseError, ValueError) as error:
                     errors.append(error_code(error))
 
+        jobs = list(jobs_by_id.values())
         return {
             "company_slug": slug,
             "ats_vendor": "iCIMS",
@@ -218,16 +228,35 @@ class icims_main_system:
         }
 
     def data_aquasition(self, list_of_slugs):
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            results = list(executor.map(self.slug_processing, list_of_slugs))
-
         company_slug_map = self.database.get_company_slug_map()
+        batch = []
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(self.slug_processing, slug) for slug in list_of_slugs]
+            for future in as_completed(futures):
+                batch.append(future.result())
+                if len(batch) >= RESULT_BATCH_SIZE:
+                    self._save_results(batch, company_slug_map)
+                    batch = []
+            if batch:
+                self._save_results(batch, company_slug_map)
+
+    def _save_results(self, results, company_slug_map):
         scrape_log_rows = []
         job_rows = []
+        location_rows = []
+        location_contexts = []
+        incomplete_location_urls = set()
+        workplace_types = {}
 
         for result in results:
             slug = result.get("company_slug")
             company_id = company_slug_map.get(slug)
+            if company_id is None:
+                error = ValueError(f"Missing company_id for slug: {slug}")
+                self.database.log_errors.location_error(
+                    error, "iCIMS company lookup", "iCIMS", [{"company": slug}]
+                )
+                raise error
 
             scrape_log_rows.append(
                 (
@@ -240,6 +269,32 @@ class icims_main_system:
             )
 
             for job in result.get("jobs",[]):
+                url = job.get("url")
+                vendor_job_id = job.get("id")
+                context = {
+                    "company": slug, "company_id": company_id,
+                    "vendor_job_id": vendor_job_id, "url": url,
+                    "location": job.get("locations"),
+                }
+                if not isinstance(url, str) or not url.strip():
+                    self.database.log_errors.location_error(
+                        ValueError("iCIMS job is missing its posting URL"),
+                        "iCIMS job preparation", "iCIMS", [context]
+                    )
+                    continue
+                if vendor_job_id is None:
+                    vendor_job_id = url
+                location_issues = job.get("location_issues", [])
+                if location_issues:
+                    self.database.log_errors.location_error(
+                        ValueError("; ".join(location_issues)),
+                        "iCIMS incomplete location", "iCIMS", [context]
+                    )
+                    incomplete_location_urls.add(url)
+                location_contexts.append(context)
+                location_rows.append((url, str(vendor_job_id), job["locations"]))
+                if job.get("workplace_type"):
+                    workplace_types[url] = job["workplace_type"]
                 job_rows.append(
                     (
                         company_id,
@@ -248,15 +303,19 @@ class icims_main_system:
                         job.get("description"),
                         None,
                         None,
-                        job.get("url"),
+                        url,
                         None,
                         datetime.now().astimezone().isoformat(timespec="seconds")
                     )   
 
                 )
 
+        self.database.bulk_insert_jobs_with_locations(
+            job_rows, location_rows, "iCIMS", location_contexts,
+            incomplete_location_urls, workplace_types,
+        )
         self.database.bulk_insert_scrape_logs(scrape_log_rows)
-        self.database.bulk_insert_job_possting(job_rows, "ICIMS")
+        print(f"Saved iCIMS batch: {len(results)} companies, {len(job_rows)} job records")
 
 
 def main():

@@ -3,6 +3,7 @@ import requests
 from logging_errors import error_code
 from pathlib import Path
 from The_Database.db_connect import database_connection_system
+from Jobs.Locations.locations_func import bamboohr_raw_locations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
@@ -83,7 +84,7 @@ class bamboohr_main_system():
 
                     try:
                         opening = future.result()
-                        jobs.append(opening)
+                        jobs.append({**opening, "_bamboohr_job_id": job_id})
                     except requests.RequestException as error:
                         print(f"DETAIL FAILED | {slug} | {job_id} | {error}")
 
@@ -114,10 +115,20 @@ class bamboohr_main_system():
         company_slug_map = self.database.get_company_slug_map()
         scrape_log_rows = []
         job_rows = []
+        location_rows = []
+        location_contexts = []
+        incomplete_location_urls = set()
+        workplace_types = {}
 
         for result in results:
             slug = result.get("company_slug")
             company_id = company_slug_map.get(slug)
+            if company_id is None:
+                error = ValueError(f"Missing company_id for slug: {slug}")
+                self.database.log_errors.location_error(
+                    error, "BambooHR company lookup", "BambooHR", [{"company": slug}]
+                )
+                raise error
 
             scrape_log_rows.append((
                 company_id,
@@ -128,8 +139,36 @@ class bamboohr_main_system():
             ))
 
             for job in result.get("jobs", []):
-                location = job.get("location", {})
-                location_text = self.get_location_text(location)
+                url = job.get("jobOpeningShareUrl")
+                vendor_job_id = job.get("_bamboohr_job_id")
+                context = {
+                    "company": slug, "company_id": company_id,
+                    "vendor_job_id": vendor_job_id, "url": url,
+                    "location": job.get("location"), "atsLocation": job.get("atsLocation"),
+                    "locationType": job.get("locationType"),
+                }
+                if not isinstance(url, str) or not url.strip():
+                    self.database.log_errors.location_error(
+                        ValueError("BambooHR job is missing its posting URL"),
+                        "BambooHR job preparation", "BambooHR", [context]
+                    )
+                    continue
+                if vendor_job_id is None:
+                    vendor_job_id = url
+                raw_locations, issues = bamboohr_raw_locations(job)
+                if issues:
+                    self.database.log_errors.location_error(
+                        ValueError("; ".join(issues)), "BambooHR incomplete location",
+                        "BambooHR", [context]
+                    )
+                    incomplete_location_urls.add(url)
+                location_contexts.append(context)
+                location_rows.append((url, str(vendor_job_id), raw_locations))
+                workplace = {"0": "OnSite", "1": "Remote", "2": "Hybrid"}.get(
+                    str(job.get("locationType"))
+                )
+                if workplace:
+                    workplace_types[url] = workplace
 
                 job_rows.append((
                     company_id,
@@ -138,13 +177,16 @@ class bamboohr_main_system():
                     self.clean_html(job.get("description")),
                     job.get("datePosted"),
                     job.get("employmentStatusLabel"),
-                    job.get("jobOpeningShareUrl"),
+                    url,
                     job.get("compensation", "N/A"),
                     datetime.now().astimezone().isoformat(timespec="seconds")
                 ))
 
         self.database.bulk_insert_scrape_logs(scrape_log_rows)
-        self.database.bulk_insert_job_possting(job_rows,"Bamboohr")
+        self.database.bulk_insert_jobs_with_locations(
+            job_rows, location_rows, "BambooHR", location_contexts,
+            incomplete_location_urls, workplace_types,
+        )
 
 
     def clean_html(self, html_text):
@@ -157,12 +199,12 @@ class bamboohr_main_system():
 
     def get_remote_status(self, job):
         location = job.get("location", {})
-        location_values = " ".join(str(value) for value in location.values()).lower()
+        location_values = " ".join(str(value) for value in location.values()).lower() if isinstance(location, dict) else ""
 
-        if "remote" in location_values or job.get("locationType") == 1:
+        if "remote" in location_values or str(job.get("locationType")) == "1":
             return True
 
-        if job.get("locationType") == 2:
+        if str(job.get("locationType")) == "2":
             return False
 
         return "N/A"

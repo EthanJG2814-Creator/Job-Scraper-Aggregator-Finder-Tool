@@ -3,9 +3,11 @@ import requests
 from logging_errors import error_code
 from pathlib import Path
 from The_Database.db_connect import database_connection_system
+from Jobs.Locations.locations_func import greenhouse_raw_locations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
+import html
 
 # global variables
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +53,10 @@ class greenhouse_main_system():
                 }
 
             except requests.RequestException as error:
+                self.database.log_errors.location_error(
+                    error, "Greenhouse request", "Greenhouse",
+                    [{"company": slug, "vendor_job_id": None, "location": None, "url": url}],
+                )
                 return {
                     "company_slug": slug,
                     "ats_vendor": "Greenhouse",
@@ -68,14 +74,22 @@ class greenhouse_main_system():
         company_slug_map = self.database.get_company_slug_map()
         scrape_log_rows = []
         job_rows = []
+        location_rows = []
+        location_contexts = []
+        incomplete_location_urls = set()
 
         for result in results:
             slug = result.get("company_slug")
             company_id = company_slug_map.get(slug)
 
             if company_id is None:
-                print(f"Missing company_id for slug: {slug}")
-                continue
+                error = ValueError(f"Missing company_id for slug: {slug}")
+                self.database.log_errors.location_error(
+                    error, "Greenhouse company lookup", "Greenhouse",
+                    [{"company": slug, "company_id": None, "vendor_job_id": None,
+                      "location": None, "url": None}],
+                )
+                raise error
 
             scrape_log_rows.append((
                 company_id,
@@ -86,27 +100,60 @@ class greenhouse_main_system():
             ))
 
             for job in result.get("jobs",[]):
-                job_rows.append((
-                    company_id,
-                    job.get("title"),
-                    "N/A",
-                    self.clean_html(job.get("content")),
-                    job.get("first_published"),
-                    self.get_employment_type(job),
-                    job.get("absolute_url"),
-                    self.get_pay_range(job),
-                    datetime.now().astimezone().isoformat(timespec="seconds")
-                ))
+                url = job.get("absolute_url")
+                vendor_job_id = job.get("id")
+                context = {
+                    "company": slug, "company_id": company_id,
+                    "vendor_job_id": vendor_job_id, "url": url,
+                    "location": job.get("location"), "locations": job.get("locations"),
+                }
+                try:
+                    if not url or vendor_job_id is None:
+                        raise ValueError("Greenhouse job is missing its URL or job ID")
+                    raw_locations, location_issues = greenhouse_raw_locations(job)
+                    job_row = (
+                        company_id,
+                        job.get("title"),
+                        "N/A",
+                        self.clean_html(job.get("content")),
+                        job.get("first_published"),
+                        self.get_employment_type(job),
+                        url,
+                        self.get_pay_range(job),
+                        datetime.now().astimezone().isoformat(timespec="seconds")
+                    )
+                except Exception as error:
+                    self.database.log_errors.location_error(
+                        error, "Greenhouse job preparation", "Greenhouse", [context]
+                    )
+                    raise
+                if location_issues:
+                    self.database.log_errors.location_error(
+                        ValueError("; ".join(location_issues)),
+                        "Greenhouse incomplete location", "Greenhouse", [context],
+                    )
+                    incomplete_location_urls.add(url)
+                location_contexts.append(context)
+                location_rows.append((url, str(vendor_job_id), raw_locations))
+                job_rows.append(job_row)
 
-        self.database.bulk_insert_scrape_logs(scrape_log_rows)
-        self.database.bulk_insert_job_possting(job_rows,"Greenhouse")
+        try:
+            self.database.bulk_insert_scrape_logs(scrape_log_rows)
+        except Exception as error:
+            self.database.log_errors.location_error(
+                error, "Greenhouse scrape-log save (candidate jobs)", "Greenhouse", location_contexts
+            )
+            raise
+        self.database.bulk_insert_jobs_with_locations(
+            job_rows, location_rows, "Greenhouse", location_contexts, incomplete_location_urls
+        )
 
     def clean_html(self,html_text):
         if not html_text:
             return None
-
-        soup = BeautifulSoup(html_text, "html.parser")
-        return soup.get_text(" ", strip = True)
+        decoded_html = (html.unescape(html_text))
+        soup = BeautifulSoup(decoded_html, "html.parser")
+        return soup.get_text()
 
     def get_employment_type(self, job):
         for field in job.get("metadata") or []:
