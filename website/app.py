@@ -100,6 +100,58 @@ def escape_like(term):
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def top_cities():
+    """Top 25 cities by job posting count (both US and foreign)."""
+    with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
+        rows = conn.execute("""
+            SELECT city_name, state_abbv, country, COUNT(*) as count
+            FROM locations
+            WHERE city_name IS NOT NULL AND city_name != ''
+            AND country IS NOT NULL AND country != ''
+            GROUP BY city_name, state_abbv, country
+            ORDER BY count DESC
+            LIMIT 25
+        """).fetchall()
+    return {"cities": [{"city": r[0], "state": r[1], "country": r[2], "count": r[3]} for r in rows]}
+
+
+def top_us_states():
+    """Top 10 US states by job posting count."""
+    with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
+        rows = conn.execute("""
+            SELECT state_abbv, country, COUNT(*) as count
+            FROM locations
+            WHERE state_abbv IS NOT NULL AND state_abbv != ''
+            AND country = 'US'
+            GROUP BY state_abbv, country
+            ORDER BY count DESC
+            LIMIT 10
+        """).fetchall()
+    return {"states": [{"state": r[0], "country": r[1], "count": r[2]} for r in rows]}
+
+
+def top_countries():
+    """Top 3 countries by job posting count."""
+    with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
+        rows = conn.execute("""
+            SELECT country, COUNT(*) as count
+            FROM locations
+            WHERE country IS NOT NULL AND country != ''
+            GROUP BY country
+            ORDER BY count DESC
+            LIMIT 3
+        """).fetchall()
+    countries = []
+    for code, count in rows:
+        try:
+            country_obj = pycountry.countries.get(alpha_2=code)
+            name = country_obj.name if country_obj else code
+        except (AttributeError, KeyError):
+            name = code
+        countries.append({"code": code, "name": name, "count": count})
+    return {"countries": countries}
+
+
 def location_options():
     with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='locations'").fetchone():
@@ -291,6 +343,21 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/ats-timeline":
             try:
                 self.send_bytes(200, json.dumps(posting_timeline()).encode(), "application/json")
+            except sqlite3.Error as error:
+                self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+        elif url.path == "/api/top-cities":
+            try:
+                self.send_bytes(200, json.dumps(top_cities()).encode(), "application/json")
+            except sqlite3.Error as error:
+                self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+        elif url.path == "/api/top-us-states":
+            try:
+                self.send_bytes(200, json.dumps(top_us_states()).encode(), "application/json")
+            except sqlite3.Error as error:
+                self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+        elif url.path == "/api/top-countries":
+            try:
+                self.send_bytes(200, json.dumps(top_countries()).encode(), "application/json")
             except sqlite3.Error as error:
                 self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
         elif url.path == "/api/location-options":

@@ -1,4 +1,5 @@
 ![Preview of the job search website](images/job-search-preview.png)
+![Preview of the job stats](images/job-stats-prev.png)
 
 
 # Introduction 

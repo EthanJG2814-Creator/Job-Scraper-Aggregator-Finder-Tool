@@ -147,4 +147,62 @@ async function loadTimeline() {
   }
 }
 
-loadAts().then(loadTimeline);
+async function loadCities() {
+  try {
+    const response = await fetch("/api/top-cities");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    
+    const head = `<thead><tr><th>#</th><th>City</th><th>State/Region</th><th>Country</th><th>Job Postings</th></tr></thead>`;
+    const body = data.cities.map((item, i) => 
+      `<tr><td>${i + 1}</td><td>${esc(item.city)}</td><td>${esc(item.state || "—")}</td><td>${esc(item.country)}</td><td class="total">${item.count.toLocaleString()}</td></tr>`
+    ).join("");
+    const total = data.cities.reduce((sum, item) => sum + item.count, 0);
+    const foot = `<tfoot><tr><td colspan="4">Total</td><td class="total">${total.toLocaleString()}</td></tr></tfoot>`;
+    document.getElementById("cities-table").innerHTML = `${head}<tbody>${body}</tbody>${foot}`;
+  } catch (error) {
+    document.getElementById("cities-error").textContent = `Unable to load cities: ${error.message}`;
+  }
+}
+
+async function loadUsStates() {
+  try {
+    const response = await fetch("/api/top-us-states");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    
+    const head = `<thead><tr><th>#</th><th>State</th><th>Job Postings</th></tr></thead>`;
+    const body = data.states.map((item, i) => 
+      `<tr><td>${i + 1}</td><td>${esc(item.state)}</td><td class="total">${item.count.toLocaleString()}</td></tr>`
+    ).join("");
+    const total = data.states.reduce((sum, item) => sum + item.count, 0);
+    const foot = `<tfoot><tr><td colspan="2">Total</td><td class="total">${total.toLocaleString()}</td></tr></tfoot>`;
+    document.getElementById("states-table").innerHTML = `${head}<tbody>${body}</tbody>${foot}`;
+  } catch (error) {
+    document.getElementById("states-error").textContent = `Unable to load US states: ${error.message}`;
+  }
+}
+
+async function loadCountries() {
+  try {
+    const response = await fetch("/api/top-countries");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    
+    const head = `<thead><tr><th>#</th><th>Country</th><th>Job Postings</th></tr></thead>`;
+    const body = data.countries.map((item, i) => 
+      `<tr><td>${i + 1}</td><td>${esc(item.name)}</td><td class="total">${item.count.toLocaleString()}</td></tr>`
+    ).join("");
+    const total = data.countries.reduce((sum, item) => sum + item.count, 0);
+    const foot = `<tfoot><tr><td colspan="2">Total</td><td class="total">${total.toLocaleString()}</td></tr></tfoot>`;
+    document.getElementById("countries-table").innerHTML = `${head}<tbody>${body}</tbody>${foot}`;
+  } catch (error) {
+    document.getElementById("countries-error").textContent = `Unable to load countries: ${error.message}`;
+  }
+}
+
+loadAts().then(loadTimeline).then(() => {
+  loadCities();
+  loadUsStates();
+  loadCountries();
+});
