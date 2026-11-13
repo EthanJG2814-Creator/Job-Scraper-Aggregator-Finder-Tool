@@ -4,9 +4,17 @@ let pages = 1;
 let jobs = [];
 let latestRequest = 0;
 let locationOptions = [];
+let sessionId = localStorage.getItem("sessionId");
+let currentJobId = null;
 const selectedLocations = new Map();
 const countryNames = typeof Intl.DisplayNames === "function"
   ? new Intl.DisplayNames(["en"], { type: "region" }) : null;
+
+// Generate session ID if not exists
+if (!sessionId) {
+  sessionId = "session_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+  localStorage.setItem("sessionId", sessionId);
+}
 
 function countryName(code) {
   try { return countryNames?.of(code) || code; } catch { return code; }
@@ -210,9 +218,15 @@ async function load() {
 
 function show(job) {
   const facts = [job.job_remote === true || job.job_remote === 1 || /^(true|yes|remote)$/i.test(job.job_remote) ? "Remote" : "", job.compensation_summary].filter(Boolean);
+  currentJobId = job.id;
   $("job-detail").innerHTML = `
-    <p class="detail-kicker">${esc(job.company)}</p>
-    <h1>${highlight(job.title, titleTerms())}</h1>
+    <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
+      <div style="flex: 1;">
+        <p class="detail-kicker">${esc(job.company)}</p>
+        <h1>${highlight(job.title, titleTerms())}</h1>
+      </div>
+      <button id="bookmark-btn" class="bookmark-btn" data-job-id="${job.id}" style="padding: 8px 12px; background: #bb4d26; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 13px; white-space: nowrap; flex-shrink: 0;">☆ Save</button>
+    </div>
     <p class="job-facts">Job ID: ${job.id} · ATS: ${esc(job.ats_vendor || "Unknown")} · Employment type: ${esc(job.employment_type || "n/a")}</p>
     ${facts.length ? `<p class="job-facts">${esc(facts.join(" · "))}</p>` : ""}
     ${job.locations.length ? `<section class="locations-section"><h2>Locations</h2>${job.locations.map((location) => `<span class="location-chip">${esc(locationText(location))}</span>`).join("")}</section>` : ""}
@@ -220,6 +234,53 @@ function show(job) {
     ${job.job_url ? `<a class="apply-link" href="${esc(job.job_url)}" target="_blank" rel="noopener">Apply</a>` : ""}
     <section class="description-section"><div class="description">${highlight(job.description || "No description available.", descriptionTerms())}</div></section>`;
   $("job-detail").querySelector(".description").style.whiteSpace = "pre-wrap";
+  
+  // Add bookmark button functionality
+  const bookmarkBtn = $("bookmark-btn");
+  if (bookmarkBtn) {
+    checkBookmarkStatus(job.id);
+    bookmarkBtn.addEventListener("click", () => toggleBookmark(job.id, bookmarkBtn));
+  }
+}
+
+async function checkBookmarkStatus(jobId) {
+  try {
+    const response = await fetch(`/api/bookmark-check?session=${encodeURIComponent(sessionId)}&job_id=${jobId}`);
+    const data = await response.json();
+    const btn = $("bookmark-btn");
+    if (btn && data.bookmarked) {
+      btn.textContent = "★ Saved";
+      btn.style.background = "#d9a441";
+    }
+  } catch (error) {
+    console.error("Error checking bookmark status:", error);
+  }
+}
+
+async function toggleBookmark(jobId, btn) {
+  try {
+    const isCurrentlySaved = btn.textContent.includes("★");
+    const endpoint = isCurrentlySaved ? "/api/bookmark-remove" : "/api/bookmark-add";
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, job_id: jobId })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    
+    if (data.success || !data.error) {
+      if (isCurrentlySaved) {
+        btn.textContent = "☆ Save";
+        btn.style.background = "#bb4d26";
+      } else {
+        btn.textContent = "★ Saved";
+        btn.style.background = "#d9a441";
+      }
+    }
+  } catch (error) {
+    alert(`Error saving job: ${error.message}`);
+  }
 }
 
 $("job-list").addEventListener("click", (event) => {

@@ -53,6 +53,9 @@ resulting records for batch database writes. BambooHR also makes detail
 requests for individual listings so it can retrieve the full posting
 information. iCIMS follows a different path: it discovers job URLs through
 company sitemaps and fetches each posting page for its description and locations.
+For sitemap URLs, iCIMS removes a leading `careers-`, `jobs-`, or `job-` from
+the configured slug before trying the `careers-` and `jobs-` hosts. The
+original slug remains the company identifier in the database.
 Completed iCIMS companies are saved in batches of 25, so a later failure does
 not roll back earlier saved batches. Duplicate posting URLs in a batch share
 their collected raw locations; conflicting vendor IDs are logged as an error.
@@ -148,7 +151,8 @@ executes `The_Database/sql_code/Table_Create.sql`. The schema uses
 `CREATE TABLE IF NOT EXISTS`, so this initializes a new database without
 replacing existing tables or their contents. It then runs Ashby, Lever,
 Greenhouse, and BambooHR in sequence, processes iCIMS company slugs in parallel
-chunks, and runs Workday after iCIMS completes. If a scraper process fails, the
+chunks, and runs Workday after iCIMS completes. iCIMS chunks fetch in parallel
+but take turns saving batches to avoid competing SQLite writers. If a scraper process fails, the
 remaining modules are not started. After all scrapers finish successfully,
 `Main.py` runs the location parser for all supported vendors to clean newly
 collected locations. The [GeoNames](https://download.geonames.org/export/dump/)

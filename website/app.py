@@ -152,6 +152,107 @@ def top_countries():
     return {"countries": countries}
 
 
+def add_bookmark(session_id, job_id):
+    """Add a bookmark for a job posting. Returns success status."""
+    with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
+        # Verify job exists
+        if not conn.execute("SELECT 1 FROM job_postings WHERE job_posting_id = ?", (job_id,)).fetchone():
+            raise ValueError("Job posting not found")
+    
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        try:
+            conn.execute(
+                "INSERT INTO bookmarks (job_posting_id, session_id) VALUES (?, ?)",
+                (job_id, session_id)
+            )
+            conn.commit()
+            return {"success": True, "message": "Bookmark added"}
+        except sqlite3.IntegrityError:
+            return {"success": False, "message": "Already bookmarked"}
+
+
+def remove_bookmark(session_id, job_id):
+    """Remove a bookmark. Returns success status."""
+    with sqlite3.connect(DATABASE_PATH) as conn:
+        cursor = conn.execute(
+            "DELETE FROM bookmarks WHERE job_posting_id = ? AND session_id = ?",
+            (job_id, session_id)
+        )
+        conn.commit()
+        return {"success": cursor.rowcount > 0, "message": "Bookmark removed" if cursor.rowcount > 0 else "Bookmark not found"}
+
+
+def get_bookmarks(session_id, page=1):
+    """Get bookmarks for a session with full job details."""
+    with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        
+        # Get total count
+        total = conn.execute(
+            "SELECT COUNT(*) FROM bookmarks WHERE session_id = ?", (session_id,)
+        ).fetchone()[0]
+        
+        # Get bookmarked jobs with details
+        rows = conn.execute(f"""
+            SELECT j.job_posting_id AS id, s.ats_vendor, j.job_title AS title, c.slug_name AS company,
+                   j.published_date, j.last_scanned, j.employment_type, j.job_remote,
+                   j.compensation_summary, j.job_url, j.job_description AS description,
+                   b.created_at AS bookmarked_at
+            FROM bookmarks b
+            JOIN job_postings j ON j.job_posting_id = b.job_posting_id
+            LEFT JOIN companies c ON c.company_id = j.company_id
+            LEFT JOIN sources s ON s.source_id =
+                 (SELECT MAX(source_id) FROM sources WHERE company_id = j.company_id)
+            WHERE b.session_id = ?
+            ORDER BY b.created_at DESC
+            LIMIT ? OFFSET ?
+        """, (session_id, PAGE_SIZE, (page - 1) * PAGE_SIZE)).fetchall()
+        
+        jobs = [dict(row) for row in rows]
+        
+        # Get locations for these jobs
+        has_locations = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='locations'"
+        ).fetchone()
+        if has_locations and jobs:
+            ids = [job["id"] for job in jobs]
+            location_columns = {row["name"] for row in conn.execute("PRAGMA table_info(locations)")}
+            remote = "is_remote" if "is_remote" in location_columns else "0 AS is_remote"
+            hybrid = "is_hybrid" if "is_hybrid" in location_columns else "0 AS is_hybrid"
+            location_rows = conn.execute(
+                f"""SELECT DISTINCT job_posting_id, city_name, state_abbv, country, {remote}, {hybrid}
+                    FROM locations WHERE job_posting_id IN ({','.join('?' for _ in ids)})
+                    ORDER BY country, state_abbv, city_name""", ids
+            ).fetchall()
+            by_job = {}
+            for row in location_rows:
+                by_job.setdefault(row["job_posting_id"], []).append({
+                    name: row[name] for name in ("city_name", "state_abbv", "country", "is_remote", "is_hybrid")
+                })
+            for job in jobs:
+                job["locations"] = by_job.get(job["id"], [])
+        else:
+            for job in jobs:
+                job["locations"] = []
+    
+    return {
+        "total": total,
+        "page": page,
+        "pages": max(1, -(-total // PAGE_SIZE)),
+        "jobs": jobs,
+    }
+
+
+def is_bookmarked(session_id, job_id):
+    """Check if a job is bookmarked by the session."""
+    with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
+        result = conn.execute(
+            "SELECT 1 FROM bookmarks WHERE job_posting_id = ? AND session_id = ?",
+            (job_id, session_id)
+        ).fetchone()
+        return {"bookmarked": bool(result)}
+
+
 def location_options():
     with sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True) as conn:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='locations'").fetchone():
@@ -374,6 +475,89 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.dumps(search_jobs(parse_qs(url.query))).encode()
                 self.send_bytes(200, body, "application/json")
             except ValueError as error:
+                self.send_bytes(400, json.dumps({"error": str(error)}).encode(), "application/json")
+            except sqlite3.Error as error:
+                self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+        elif url.path == "/bookmarks":
+            self.send_bytes(200, (WEBSITE_DIR / "bookmarks.html").read_bytes(), "text/html; charset=utf-8")
+        elif url.path == "/static/bookmarks.js":
+            self.send_bytes(200, (WEBSITE_DIR / "static" / "bookmarks.js").read_bytes(), "text/javascript")
+        elif url.path == "/api/bookmarks":
+            try:
+                params = parse_qs(url.query)
+                session = params.get("session", [""])[0]
+                if not session:
+                    raise ValueError("session parameter required")
+                try:
+                    page = max(1, int(params.get("page", ["1"])[0]))
+                except ValueError:
+                    page = 1
+                body = json.dumps(get_bookmarks(session, page)).encode()
+                self.send_bytes(200, body, "application/json")
+            except ValueError as error:
+                self.send_bytes(400, json.dumps({"error": str(error)}).encode(), "application/json")
+            except sqlite3.Error as error:
+                self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+        elif url.path == "/api/bookmark-add":
+            self._handle_bookmark_request("add")
+        elif url.path == "/api/bookmark-remove":
+            self._handle_bookmark_request("remove")
+        elif url.path == "/api/bookmark-check":
+            try:
+                params = parse_qs(url.query)
+                session = params.get("session", [""])[0]
+                job_id = params.get("job_id", [""])[0]
+                if not session or not job_id:
+                    raise ValueError("session and job_id parameters required")
+                job_id = int(job_id)
+                body = json.dumps(is_bookmarked(session, job_id)).encode()
+                self.send_bytes(200, body, "application/json")
+            except (ValueError, IndexError) as error:
+                self.send_bytes(400, json.dumps({"error": str(error)}).encode(), "application/json")
+            except sqlite3.Error as error:
+                self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+        else:
+            self.send_bytes(404, b"Not found", "text/plain")
+    
+    def _handle_bookmark_request(self, action):
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            data = json.loads(body)
+            session = data.get("session_id")
+            job_id = data.get("job_id")
+            if not session or not job_id:
+                raise ValueError("session_id and job_id required")
+            job_id = int(job_id)
+            if action == "add":
+                result = add_bookmark(session, job_id)
+            else:
+                result = remove_bookmark(session, job_id)
+            self.send_bytes(200, json.dumps(result).encode(), "application/json")
+        except (ValueError, KeyError) as error:
+            self.send_bytes(400, json.dumps({"error": str(error)}).encode(), "application/json")
+        except sqlite3.Error as error:
+            self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")
+    
+    def do_POST(self):
+        url = urlparse(self.path)
+        if url.path == "/api/bookmark-add":
+            self._handle_bookmark_request("add")
+        elif url.path == "/api/bookmark-remove":
+            self._handle_bookmark_request("remove")
+        elif url.path == "/api/bookmarks-clear":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode()
+                data = json.loads(body)
+                session = data.get("session_id")
+                if not session:
+                    raise ValueError("session_id required")
+                with sqlite3.connect(DATABASE_PATH) as conn:
+                    conn.execute("DELETE FROM bookmarks WHERE session_id = ?", (session,))
+                    conn.commit()
+                self.send_bytes(200, json.dumps({"success": True, "message": "All bookmarks cleared"}).encode(), "application/json")
+            except (ValueError, KeyError) as error:
                 self.send_bytes(400, json.dumps({"error": str(error)}).encode(), "application/json")
             except sqlite3.Error as error:
                 self.send_bytes(500, json.dumps({"error": str(error)}).encode(), "application/json")

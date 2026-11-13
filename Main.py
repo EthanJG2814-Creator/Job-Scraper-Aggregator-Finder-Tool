@@ -3,7 +3,9 @@ import argparse
 import sqlite3
 import subprocess
 import sys
+import traceback
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 from Jobs.icims_main import icims_main_system
 
@@ -38,19 +40,34 @@ def initialize_database():
     print(f"Database initialized: {DATABASE_PATH}", flush=True)
 
 
-def run_icims_chunk(slug_chunk):
+def run_icims_chunk(slug_chunk, write_lock):
     # Own instance per thread because SQLite connections are single-thread.
-    icims_main_system().data_aquasition(slug_chunk)
+    with write_lock:
+        scraper = icims_main_system(write_lock=write_lock)
+    try:
+        scraper.data_aquasition(slug_chunk)
+    except BaseException:
+        scraper.database.db_connection.rollback()
+        raise
+    finally:
+        scraper.database.close_database()
 
 
 def run_icims_parallel():
-    slugs = icims_main_system().load_company_slugs()
+    scraper = icims_main_system()
+    try:
+        slugs = scraper.load_company_slugs()
+    finally:
+        scraper.database.close_database()
     # Round-robin so every chunk gets a similar mix of big and small companies.
     chunks = [slugs[i::ICIMS_CHUNKS] for i in range(ICIMS_CHUNKS)]
     chunks = [chunk for chunk in chunks if chunk]
 
+    if not chunks:
+        return
+    write_lock = Lock()
     with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
-        futures = [executor.submit(run_icims_chunk, chunk) for chunk in chunks]
+        futures = [executor.submit(run_icims_chunk, chunk, write_lock) for chunk in chunks]
         for future in futures:
             future.result()
 
@@ -132,6 +149,7 @@ def main():
 
     except Exception as error:
         print(f"\nExecution failed: {error}", file=sys.stderr, flush=True)
+        traceback.print_exc()
         return 1
 
     return 0

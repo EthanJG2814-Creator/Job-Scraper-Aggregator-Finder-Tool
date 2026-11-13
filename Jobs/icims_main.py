@@ -1,6 +1,7 @@
 import json
 import requests
 import xml.etree.ElementTree as ET
+from contextlib import nullcontext
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit, parse_qs, urlsplit, urlunsplit, parse_qsl, urlencode
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -32,9 +33,10 @@ HEADERS = {
 
 
 class icims_main_system:
-    def __init__(self):
+    def __init__(self, write_lock=None):
         self.database = database_connection_system()
         self.logging_errors = Error_Log_system()
+        self.write_lock = write_lock
 
 
     def load_company_slugs(self):
@@ -193,9 +195,15 @@ class icims_main_system:
     def slug_processing(self, slug):
         print(f"working on {slug}")
 
+        company_slug = slug
+        # for prefix in ("careers-", "jobs-", "job-"):
+        #     if slug.startswith(prefix):
+        #         company_slug = slug[len(prefix):]
+        #         break
+
         sitemap_urls = [
-            f"https://careers-{slug}.icims.com/sitemap.xml",
-            f"https://jobs-{slug}.icims.com/sitemap.xml",]
+            f"https://careers-{company_slug}.icims.com/sitemap.xml",
+            f"https://jobs-{company_slug}.icims.com/sitemap.xml",]
 
         jobs_by_id = {}
         errors = []
@@ -310,11 +318,12 @@ class icims_main_system:
 
                 )
 
-        self.database.bulk_insert_jobs_with_locations(
-            job_rows, location_rows, "iCIMS", location_contexts,
-            incomplete_location_urls, workplace_types,
-        )
-        self.database.bulk_insert_scrape_logs(scrape_log_rows)
+        with getattr(self, "write_lock", None) or nullcontext():
+            self.database.bulk_insert_jobs_with_locations(
+                job_rows, location_rows, "iCIMS", location_contexts,
+                incomplete_location_urls, workplace_types,
+            )
+            self.database.bulk_insert_scrape_logs(scrape_log_rows)
         print(f"Saved iCIMS batch: {len(results)} companies, {len(job_rows)} job records")
 
 

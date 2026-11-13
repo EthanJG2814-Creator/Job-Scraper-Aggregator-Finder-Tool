@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Bookmarks - Job Searcher</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    #page-input { width: 70px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 3px; font: inherit; text-align: center; background: #fff; }
+    #page-label { white-space: nowrap; }
+    .pagination button:disabled { opacity: .4; cursor: default; }
+    .bookmark-count { color: var(--accent); font-weight: 600; }
+    .clear-all-btn { margin-top: 16px; padding: 8px 16px; background: #9b2c1d; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 14px; }
+    .clear-all-btn:hover { background: #7a1f14; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">JOB / BOOKMARKS</div>
+    <nav class="topnav" aria-label="Pages">
+      <a href="/">Job Searcher</a>
+      <a href="/analyst">Job Analyst</a>
+      <a href="/bookmarks" aria-current="page">My Bookmarks</a>
+    </nav>
+    <div class="live-indicator"><span></span> Live database</div>
+  </header>
+  <main>
+    <section class="searchbar" aria-label="Bookmarks header">
+      <div>
+        <h1>My Bookmarks</h1>
+        <p class="stats-subtitle">Jobs you've saved for later review. <span class="bookmark-count" id="bookmark-count">Loading…</span></p>
+      </div>
+    </section>
+    <div style="display: flex; gap: 20px;">
+      <div id="job-list" style="flex: 1; min-width: 300px;"></div>
+      <div id="job-detail" style="flex: 1.5; min-width: 300px; border-left: 1px solid var(--line); padding-left: 20px;"></div>
+    </div>
+    <div id="pagination" style="display: none; margin-top: 20px; text-align: center;">
+      <div class="pagination">
+        <button id="first-page">First</button>
+        <button id="previous-page">← Previous</button>
+        <label id="page-label"><input id="page-input" type="number" min="1"> of <span id="page-total">1</span></label>
+        <button id="next-page">Next →</button>
+        <button id="last-page">Last</button>
+      </div>
+      <p id="result-count" style="margin: 12px 0 0; font-size: 13px; color: var(--accent);"></p>
+    </div>
+    <button class="clear-all-btn" id="clear-all-btn" style="display: none;">Clear All Bookmarks</button>
+  </main>
+  <script src="/static/bookmarks.js"></script>
+</body>
+</html>

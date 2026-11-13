@@ -41,7 +41,7 @@ class Error_Log_system ():
 
         new_section = error_log
 
-        with open("errors.txt", "a", encoding="utf-8") as file:
+        with open("errors.txt", "a", encoding="utf-8", buffering=1024*1024) as file:
             file.write("\n\n\n" + new_section)
 
     def location_error(self, error, section, ats_vendor, contexts):

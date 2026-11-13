@@ -245,8 +245,10 @@ def workday_raw_locations(info, summary, *, page_data=False):
                     issues.append(f"jobLocation has no usable address: {entry!r}")
     else:
         if "location" in info:
-            supplied += 1
-            add(info["location"], "location")
+            location_value = info["location"]
+            if isinstance(location_value, str) and location_value.strip():
+                supplied += 1
+                add(location_value, "location")
         additional = info.get("additionalLocations")
         if additional is not None:
             if not isinstance(additional, list):
@@ -255,8 +257,9 @@ def workday_raw_locations(info, summary, *, page_data=False):
                 if additional and "location" not in info:
                     issues.append("Primary location is missing")
                 for value in additional:
-                    supplied += 1
-                    add(value, "additionalLocations")
+                    if isinstance(value, str) and value.strip():
+                        supplied += 1
+                        add(value, "additionalLocations")
 
     count = workday_location_count(summary)
     if count is not None and supplied < count:
@@ -387,22 +390,20 @@ def store_locations(connection, ats_vendor, jobs, incomplete_urls=(), workplace_
             SELECT DISTINCT ?, raw_text FROM location_stage_raw WHERE 1
             ON CONFLICT(ats_vendor, raw_text) DO NOTHING
     """, (ats_vendor,))
-    connection.execute("""
+    
+    posting_ids = [row[0] for row in connection.execute("""
+        SELECT DISTINCT j.job_posting_id FROM job_postings j
+        JOIN location_stage_jobs s ON s.url = j.job_url
+        WHERE NOT EXISTS (SELECT 1 FROM location_stage_incomplete i WHERE i.url = s.url)
+    """).fetchall()]
+    
+    if posting_ids:
+        placeholders = ",".join("?" * len(posting_ids))
+        connection.execute(f"""
             DELETE FROM job_raw_locations
-            WHERE ats_vendor = ?
-              AND job_posting_id IN (
-                  SELECT j.job_posting_id FROM job_postings j
-                  JOIN location_stage_jobs s ON s.url = j.job_url
-                  WHERE NOT EXISTS (SELECT 1 FROM location_stage_incomplete i WHERE i.url = s.url)
-              )
-              AND NOT EXISTS (
-                  SELECT 1 FROM job_postings j
-                  JOIN location_stage_raw s ON s.url = j.job_url
-                  JOIN raw_locations r ON r.ats_vendor = ? AND r.raw_text = s.raw_text
-                  WHERE j.job_posting_id = job_raw_locations.job_posting_id
-                    AND r.raw_location_id = job_raw_locations.raw_location_id
-              )
-    """, (ats_vendor, ats_vendor))
+            WHERE ats_vendor = ? AND job_posting_id IN ({placeholders})
+        """, [ats_vendor] + posting_ids)
+    
     connection.execute("""
             INSERT INTO job_raw_locations (job_posting_id, ats_vendor, vendor_job_id, raw_location_id, workplace_type)
             SELECT j.job_posting_id, ?, sj.vendor_job_id, r.raw_location_id, sj.workplace_type
@@ -414,20 +415,19 @@ def store_locations(connection, ats_vendor, jobs, incomplete_urls=(), workplace_
             ON CONFLICT(job_posting_id, ats_vendor, raw_location_id)
             DO UPDATE SET vendor_job_id = excluded.vendor_job_id, workplace_type = excluded.workplace_type
     """, (ats_vendor, ats_vendor))
-    connection.execute("""
+    
+    if posting_ids:
+        placeholders = ",".join("?" * len(posting_ids))
+        connection.execute(f"""
             DELETE FROM locations
-            WHERE raw_location_id IS NOT NULL
-              AND raw_location_id IN (SELECT raw_location_id FROM raw_locations WHERE ats_vendor = ?)
-              AND job_posting_id IN (
-                  SELECT j.job_posting_id FROM job_postings j
-                  JOIN location_stage_jobs s ON s.url = j.job_url
-              )
+            WHERE job_posting_id IN ({placeholders})
               AND NOT EXISTS (
                   SELECT 1 FROM job_raw_locations l
                   WHERE l.job_posting_id = locations.job_posting_id
                     AND l.raw_location_id = locations.raw_location_id
               )
-    """, (ats_vendor,))
+        """, posting_ids)
+    
     insert_clean_locations(connection, "jobs")
 
 
@@ -676,3 +676,5 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+# job function exectuion
+# python -m Jobs.Locations.locations_func

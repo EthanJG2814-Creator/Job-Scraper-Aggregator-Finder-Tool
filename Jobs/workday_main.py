@@ -438,13 +438,6 @@ class workday_algor:
                         detail["vendor_job_id"] = path.rsplit("/", 1)[-1] or job_url
                         if detail["location_issues"]:
                             error_type = error_type or "IncompleteLocation"
-                            self.database.log_errors.location_error(
-                                ValueError("; ".join(detail["location_issues"])),
-                                "Workday incomplete location", "Workday",
-                                [{"company": slug, "vendor_job_id": detail["vendor_job_id"],
-                                  "url": job_url, "location": detail["raw_locations"],
-                                  "listing_location": job.get("locationsText")}],
-                            )
                         jobs.append(detail)
                         jobs_found += 1
                     except ERRORS as error:
