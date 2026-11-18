@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profile Creation - Job Searcher</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/resume_matcher.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">PROFILE / CREATION</div>
+    <nav class="topnav" aria-label="Pages">
+      <a href="/">Job Searcher</a>
+      <a href="/analyst">Job Analyst</a>
+      <a href="/matrix">Job Matrix</a>
+      <a href="/profile-creation" aria-current="page">Profile Creation</a>
+      <a href="/resume-matcher">Resume Matcher</a>
+      <a href="/bookmarks">My Bookmarks</a>
+    </nav>
+    <div class="live-indicator"><span></span> Local profiles</div>
+  </header>
+  <main class="resume-main">
+    <section class="stats-intro">
+      <div>
+        <p class="eyebrow">Profile Creation</p>
+        <h1>Candidate profiles</h1>
+        <p class="stats-subtitle">Manually enter work experience for Resume Matcher.</p>
+        <p class="stats-subtitle">Profiles are saved locally on this computer and are accessible to anyone using this website.</p>
+      </div>
+      <button id="reload" type="button" class="refresh-button">Reload profiles</button>
+    </section>
+    <p id="status" class="resume-status" role="status" aria-live="polite"></p>
+    <div class="resume-layout">
+      <aside class="resume-panel">
+        <h2>Candidates</h2>
+        <form id="create-profile" class="resume-form">
+          <label for="new-name">Candidate name</label>
+          <input id="new-name" maxlength="200" required autocomplete="off">
+          <button type="submit" class="resume-primary">Add candidate</button>
+        </form>
+        <div id="profile-list" class="profile-list" aria-label="Candidate profiles"></div>
+      </aside>
+      <section class="resume-panel" aria-label="Candidate work experience">
+        <p id="select-message" class="resume-hint">Add or select a candidate to enter work experience.</p>
+        <div id="profile-detail" hidden>
+          <form id="profile-form" class="resume-form">
+            <label for="profile-name">Candidate name</label>
+            <div class="profile-actions">
+              <input id="profile-name" maxlength="200" required autocomplete="off">
+              <button type="submit" class="refresh-button">Save name</button>
+              <button type="button" id="delete-profile" class="resume-danger">Delete candidate</button>
+            </div>
+          </form>
+          <div class="experience-heading">
+            <h2>Work experience</h2>
+            <span id="experience-count" class="panel-total"></span>
+          </div>
+          <div id="experience-list"></div>
+          <form id="experience-form" class="resume-form experience-form">
+            <h3 id="form-title">Add work experience</h3>
+            <div class="resume-fields">
+              <label>Job title <input id="job-title" maxlength="200" required></label>
+              <label>Employer <input id="company" maxlength="200"></label>
+              <label>Start month <input id="start" type="month"></label>
+              <label>End month <input id="end" type="month"></label>
+            </div>
+            <label class="current-label"><input id="current" type="checkbox"> I currently work here</label>
+            <label for="description">Description</label>
+            <textarea id="description" rows="5" maxlength="10000" placeholder="Responsibilities, accomplishments, or other details"></textarea>
+            <div class="form-actions">
+              <button type="submit" id="save-experience" class="resume-primary">Add experience</button>
+              <button type="button" id="cancel-edit" class="refresh-button" hidden>Cancel edit</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script src="/static/resume_matcher.js"></script>
+</body>
+</html>

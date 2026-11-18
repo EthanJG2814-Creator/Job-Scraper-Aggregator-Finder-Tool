@@ -3,134 +3,14 @@ let page = 1;
 let pages = 1;
 let jobs = [];
 let latestRequest = 0;
-let locationOptions = [];
 let sessionId = localStorage.getItem("sessionId");
 let currentJobId = null;
-const selectedLocations = new Map();
-const countryNames = typeof Intl.DisplayNames === "function"
-  ? new Intl.DisplayNames(["en"], { type: "region" }) : null;
+const locationPicker = new LocationPicker();
 
 // Generate session ID if not exists
 if (!sessionId) {
   sessionId = "session_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
   localStorage.setItem("sessionId", sessionId);
-}
-
-function countryName(code) {
-  try { return countryNames?.of(code) || code; } catch { return code; }
-}
-
-function checkbox(label, checked, onChange) {
-  const wrapper = document.createElement("label");
-  wrapper.className = "location-choice";
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.checked = checked;
-  input.addEventListener("change", () => onChange(input.checked));
-  const text = document.createElement("span");
-  text.textContent = label;
-  wrapper.append(input, text);
-  return wrapper;
-}
-
-function cityChoices(container, cities, chosen) {
-  if (!cities.length) return;
-  const list = document.createElement("div");
-  list.className = "location-children city-choices";
-  const heading = document.createElement("h3");
-  heading.className = "location-section-heading";
-  heading.textContent = "Select city";
-  list.append(heading);
-  const hint = document.createElement("p");
-  hint.className = "location-help";
-  hint.textContent = "Select cities, or leave all unchecked to include all.";
-  list.append(hint);
-  for (const city of cities) {
-    list.append(checkbox(city, chosen.has(city), (checked) => {
-      if (checked) chosen.add(city); else chosen.delete(city);
-    }));
-  }
-  container.append(list);
-}
-
-function renderLocations() {
-  const container = $("location-options");
-  const menu = container.closest(".location-menu");
-  const scrollTop = menu.scrollTop;
-  container.replaceChildren();
-  $("location-summary").textContent = selectedLocations.size
-    ? `${selectedLocations.size} ${selectedLocations.size === 1 ? "country" : "countries"} selected`
-    : "All locations";
-  if (!locationOptions.length) {
-    container.textContent = "No parsed country locations are available yet.";
-    return;
-  }
-  for (const country of locationOptions) {
-    const section = document.createElement("div");
-    const selection = selectedLocations.get(country.code);
-    section.append(checkbox(`${countryName(country.code)} (${country.code})`, !!selection, (checked) => {
-      if (checked) selectedLocations.set(country.code, { states: new Map(), cities: new Set() });
-      else selectedLocations.delete(country.code);
-      renderLocations();
-    }));
-    if (selection) {
-      const stateEntries = Object.entries(country.states);
-      if (stateEntries.length) {
-        const states = document.createElement("details");
-        states.className = "location-children";
-        states.open = true;
-        const summary = document.createElement("summary");
-        summary.textContent = "Select state / province (optional)";
-        states.append(summary);
-        const hint = document.createElement("p");
-        hint.className = "location-help";
-        hint.textContent = "Leave all unchecked to include the whole country.";
-        states.append(hint);
-        for (const [state, cities] of stateEntries) {
-          const group = document.createElement("div");
-          const selectedCities = selection.states.get(state);
-          const stateName = country.state_names[state];
-          const stateLabel = stateName && stateName !== state ? `${stateName} (${state})` : state;
-          group.append(checkbox(stateLabel, !!selectedCities, (checked) => {
-            if (checked) selection.states.set(state, new Set());
-            else selection.states.delete(state);
-            renderLocations();
-          }));
-          if (selectedCities) cityChoices(group, cities, selectedCities);
-          states.append(group);
-        }
-        section.append(states);
-      } else {
-        cityChoices(section, country.cities, selection.cities);
-      }
-    }
-    container.append(section);
-  }
-  menu.scrollTop = scrollTop;
-}
-
-async function loadLocationOptions() {
-  try {
-    const response = await fetch("/api/location-options");
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || response.statusText);
-    if (!data.available) {
-      $("location-options").textContent = "Location data is not available in this database.";
-      return;
-    }
-    locationOptions = data.countries.sort((a, b) => countryName(a.code).localeCompare(countryName(b.code)));
-    renderLocations();
-  } catch (error) {
-    $("location-options").textContent = `Unable to load locations: ${error.message}`;
-  }
-}
-
-function locationFilter() {
-  return [...selectedLocations].map(([country, selection]) => ({
-    country,
-    states: Object.fromEntries([...selection.states].map(([state, cities]) => [state, [...cities]])),
-    cities: [...selection.cities],
-  }));
 }
 
 function locationText(location) {
@@ -184,7 +64,7 @@ async function load() {
     vendor: $("vendor-filter").value,
     page,
   });
-  if (selectedLocations.size) query.set("location", JSON.stringify(locationFilter()));
+  if (locationPicker.selected.size) query.set("location", JSON.stringify(locationPicker.value()));
   $("job-list").innerHTML = "";
   $("job-detail").innerHTML = '<p class="empty-state">Select a job posting to review its description.</p>';
   try {
@@ -305,8 +185,7 @@ $("clear-button").addEventListener("click", () => {
   $("sort-filter").value = "mixed";
   $("recent-filter").value = "all";
   $("vendor-filter").value = "all";
-  selectedLocations.clear();
-  renderLocations();
+  locationPicker.clear();
   search();
 });
 $("previous-page").addEventListener("click", () => { if (page > 1) { page--; load(); } });
@@ -319,4 +198,4 @@ $("first-page").addEventListener("click", () => goTo(1));
 $("last-page").addEventListener("click", () => goTo(pages));
 $("page-input").addEventListener("change", (e) => goTo(parseInt(e.target.value, 10)));
 load();
-loadLocationOptions();
+locationPicker.load();

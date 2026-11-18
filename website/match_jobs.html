@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resume Matcher - Job Searcher</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/resume_matcher.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">RESUME / MATCHER</div>
+    <nav class="topnav" aria-label="Pages">
+      <a href="/">Job Searcher</a>
+      <a href="/analyst">Job Analyst</a>
+      <a href="/matrix">Job Matrix</a>
+      <a href="/profile-creation">Profile Creation</a>
+      <a href="/resume-matcher" aria-current="page">Resume Matcher</a>
+      <a href="/bookmarks">My Bookmarks</a>
+    </nav>
+    <div class="live-indicator"><span></span> Local matching</div>
+  </header>
+  <main>
+    <section class="stats-intro">
+      <div>
+        <p class="eyebrow">Resume Matcher</p>
+        <h1>Find similar job titles</h1>
+        <p class="stats-subtitle">Ranks all stored postings, including older ones, using 50% title similarity and 50% Job Matrix proximity.</p>
+        <p class="stats-subtitle">Title similarity uses the closest title; matrix similarity averages all experience entries. Matrix positions may be estimated.</p>
+      </div>
+    </section>
+    <section class="searchbar" aria-label="Resume match filters">
+      <label>Candidate
+        <select id="candidate"><option value="">Loading candidates…</option></select>
+      </label>
+      <div class="location-filter">
+        <span class="filter-label">Location</span>
+        <details id="location-dropdown">
+          <summary id="location-summary">All locations</summary>
+          <div class="location-menu">
+            <p class="location-help">Select countries, then optionally states and cities. Leave sublocations unchecked to include all.</p>
+            <p class="location-help">Filtering excludes postings without matching parsed locations.</p>
+            <h2 class="location-section-heading">Select country</h2>
+            <div id="location-options" aria-live="polite">Loading locations…</div>
+          </div>
+        </details>
+      </div>
+      <button id="search-button" type="button">Find matches</button>
+      <button id="build-index" type="button" class="refresh-button">Build / update title index</button>
+    </section>
+    <p id="index-status" class="stats-subtitle" role="status" aria-live="polite"></p>
+    <p id="match-status" class="resume-status" role="status" aria-live="polite"></p>
+    <section class="workspace">
+      <aside class="results-panel">
+        <div class="results-heading"><p id="result-count">Choose a candidate and find matches.</p></div>
+        <div id="job-list" class="job-list" aria-live="polite"></div>
+        <nav class="pagination" aria-label="Match results pages">
+          <button id="first-page" type="button" disabled>First</button>
+          <button id="previous-page" type="button" disabled>Previous</button>
+          <span id="page-label">Page 1 of 1</span>
+          <button id="next-page" type="button" disabled>Next</button>
+          <button id="last-page" type="button" disabled>Last</button>
+        </nav>
+      </aside>
+      <article id="job-detail" class="detail-panel">
+        <p class="empty-state">Select a matching job to review its details.</p>
+      </article>
+    </section>
+  </main>
+  <script src="/static/location_picker.js"></script>
+  <script src="/static/match_jobs.js"></script>
+</body>
+</html>

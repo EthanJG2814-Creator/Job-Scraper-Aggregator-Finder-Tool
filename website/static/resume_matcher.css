@@ -1,0 +1,35 @@
+.resume-main { max-width: 1300px; }
+.resume-layout { display: grid; grid-template-columns: minmax(230px, .7fr) minmax(0, 1.8fr); gap: 14px; align-items: start; }
+.resume-panel { padding: 22px; border: 1px solid var(--line); background: var(--paper); min-width: 0; }
+.resume-panel h2 { margin: 0 0 18px; font-size: 19px; }
+.resume-form { display: grid; gap: 9px; }
+.resume-form label { font-size: 12px; font-weight: 700; }
+.resume-form input:not([type="checkbox"]), .resume-form textarea { width: 100%; }
+.resume-form textarea { resize: vertical; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; color: var(--ink); background: var(--paper); font: inherit; }
+.resume-form textarea:focus { outline: 2px solid var(--lime); outline-offset: 1px; }
+.resume-primary, .resume-danger { min-height: 38px; padding: 0 15px; border: 0; border-radius: 3px; color: white; background: var(--accent); font-weight: 700; cursor: pointer; }
+.resume-danger { background: #9b2c1d; }
+.resume-primary:disabled, .resume-danger:disabled { opacity: .5; cursor: wait; }
+.profile-list { display: grid; gap: 6px; margin-top: 20px; }
+.profile-button { padding: 11px; border: 1px solid var(--line); border-radius: 3px; text-align: left; background: transparent; overflow-wrap: anywhere; cursor: pointer; }
+.profile-button:hover, .profile-button[aria-current="true"] { border-color: #9aa85b; background: #eaf0d1; }
+.profile-actions, .form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.profile-actions input { flex: 1 1 200px; }
+.experience-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 28px; border-bottom: 1px solid var(--line); }
+.experience-card { padding: 16px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.experience-card h3 { margin: 0 0 5px; font-size: 16px; }
+.experience-card p { margin: 5px 0; font-size: 13px; }
+.experience-card .experience-meta, .resume-hint { color: var(--muted); font-size: 13px; }
+.experience-description { white-space: pre-wrap; line-height: 1.6; }
+.experience-card .form-actions { margin-top: 12px; }
+.experience-form { margin-top: 26px; padding-top: 4px; }
+.experience-form h3 { margin: 0 0 8px; font-size: 16px; }
+.resume-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.resume-fields label { display: grid; gap: 6px; }
+.current-label { display: flex; gap: 8px; align-items: center; }
+.current-label input { height: auto; }
+.resume-status { min-height: 1.5em; margin: -12px 0 12px; color: var(--accent); font-size: 13px; }
+[hidden] { display: none !important; }
+@media (max-width: 800px) {
+  .resume-layout, .resume-fields { grid-template-columns: 1fr; }
+}

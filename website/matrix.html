@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Matrix</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/matrix.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">JOB / MATRIX</div>
+    <nav class="topnav" aria-label="Pages">
+      <a href="/">Job Searcher</a>
+      <a href="/analyst">Job Analyst</a>
+      <a href="/matrix" aria-current="page">Job Matrix</a>
+      <a href="/profile-creation">Profile Creation</a>
+      <a href="/resume-matcher">Resume Matcher</a>
+      <a href="/bookmarks">My Bookmarks</a>
+    </nav>
+    <div class="live-indicator"><span></span> Live database</div>
+  </header>
+  <main class="matrix-main">
+    <aside class="matrix-panel">
+      <p class="eyebrow">Job Matrix</p>
+      <h1>Career distance</h1>
+      <p class="stats-subtitle">Pick two jobs to see how far apart they are and the routes between them.</p>
+
+      <details id="country-filter" class="country-filter" hidden>
+        <summary><span class="filter-title">Countries</span> <span id="country-summary">All</span></summary>
+        <div class="country-menu">
+          <input id="country-search" type="search" autocomplete="off" placeholder="Search countries">
+          <div class="country-buttons">
+            <button type="button" id="country-all" class="refresh-button">All</button>
+            <button type="button" id="country-none" class="refresh-button">None</button>
+          </div>
+          <div id="country-list" class="country-list"></div>
+          <p id="country-note" class="route-note"></p>
+        </div>
+      </details>
+
+      <div class="picker" data-role="from">
+        <label for="from-input">From</label>
+        <input id="from-input" type="search" autocomplete="off" placeholder="e.g. line cook">
+        <ul class="picker-list" hidden></ul>
+      </div>
+      <div class="picker" data-role="to">
+        <label for="to-input">To</label>
+        <input id="to-input" type="search" autocomplete="off" placeholder="e.g. data scientist">
+        <ul class="picker-list" hidden></ul>
+      </div>
+      <div class="matrix-actions">
+        <button id="find-path" type="button" disabled>Find routes</button>
+        <button id="swap" type="button" class="refresh-button" title="Swap jobs">&#8644;</button>
+        <button id="clear" type="button" class="refresh-button">Clear</button>
+      </div>
+      <p id="matrix-error" class="statistics-error"></p>
+
+      <section id="result" hidden>
+        <div class="route-tabs" role="tablist">
+          <button type="button" role="tab" data-mode="closest" aria-selected="true">Closest route</button>
+          <button type="button" role="tab" data-mode="fewest" aria-selected="false">Fewest jobs</button>
+        </div>
+        <p id="route-note" class="route-note"></p>
+        <div class="route-stats">
+          <div><span>Career distance</span><strong id="stat-distance">-</strong></div>
+          <div><span>Steps</span><strong id="stat-hops">-</strong></div>
+          <div><span>Biggest jump</span><strong id="stat-jump">-</strong></div>
+        </div>
+        <ol id="steps" class="steps"></ol>
+      </section>
+
+      <section id="node-info" class="node-info" hidden></section>
+    </aside>
+
+    <section class="matrix-stage">
+      <div id="canvas-wrap"></div>
+      <div id="tooltip" class="matrix-tooltip" hidden></div>
+      <div id="stage-status" class="stage-status">Loading matrix…</div>
+      <div class="stage-hint">Hover a point to see its title · click to select it</div>
+    </section>
+  </main>
+  <script type="module" src="/static/matrix.js"></script>
+</body>
+</html>
