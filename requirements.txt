@@ -3,3 +3,12 @@ beautifulsoup4
 lxml
 brotli
 pycountry
+numpy
+scipy
+pandas
+pyarrow
+scikit-learn
+umap-learn
+torch
+sentence-transformers
+

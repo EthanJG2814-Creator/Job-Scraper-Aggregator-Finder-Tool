@@ -16,10 +16,15 @@ env.bak/
 .vscode/
 
 # Databases / local data (optional — uncomment if you DON’T want this in Git)
+Job_data_old.db
+Job_data_old.db-wal
+Job_data_old.db-shm
+Job_data_old.db-journal
 job_data.db
 job_data.db-wal
 job_data.db-shm
 job_data.db-journal
+
 
 # Chrome profile directory (adjust name if your folder is different)
 chrome_profile/
@@ -35,3 +40,8 @@ Jobs/Locations/cities5000.txt
 
 # Files for testing
 test/
+# Job Matrix build outputs (regenerate with: python "Job Matrix/job_matrix.py" all)
+Job Matrix/data/
+
+# Private local resume profiles
+Resume_Matcher/data/

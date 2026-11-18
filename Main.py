@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+import os
 import sqlite3
 import subprocess
 import sys
@@ -24,6 +25,8 @@ SEQUENTIAL_SCRAPERS = (
 )
 
 ICIMS_CHUNKS = 4
+
+MATRIX_SCRIPT = PROJECT_ROOT / "Job Matrix" / "job_matrix.py"
 
 
 def initialize_database():
@@ -117,6 +120,42 @@ def run_scrapers():
     print("Finished location parser for all vendors", flush=True)
 
 
+def matrix_python():
+    """Interpreter with the Job Matrix libraries: JOB_MATRIX_PYTHON, else the embedding-models venv."""
+    candidates = []
+    if os.environ.get("JOB_MATRIX_PYTHON"):
+        candidates.append(Path(os.environ["JOB_MATRIX_PYTHON"]))
+    venv = PROJECT_ROOT.parent / "embedding models" / ".venv"
+    candidates += [venv / "bin" / "python", venv / "Scripts" / "python.exe"]
+    return next((str(path) for path in candidates if path.is_file()), None)
+
+
+def update_job_matrix():
+    """Refresh the Job Matrix from the new postings. A failure here never fails the scrape."""
+    python = matrix_python()
+    if python is None:
+        print(
+            "\nSkipping the Job Matrix update: set JOB_MATRIX_PYTHON to a Python with "
+            "sentence-transformers installed.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+    print("\nUpdating the Job Matrix", flush=True)
+    result = subprocess.run(
+        [python, "-u", str(MATRIX_SCRIPT), "update"], cwd=PROJECT_ROOT
+    )
+    if result.returncode:
+        print(
+            f"Job Matrix update failed with exit code {result.returncode}; "
+            "the scrape itself completed.",
+            file=sys.stderr,
+            flush=True,
+        )
+    else:
+        print("Finished Job Matrix update", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Initialize the database and run job scrapers."
@@ -126,6 +165,11 @@ def main():
         action="store_true",
         help="Initialize the database without running any scrapers.",
     )
+    parser.add_argument(
+        "--skip-matrix",
+        action="store_true",
+        help="Do not refresh the Job Matrix after the scrapers finish.",
+    )
     args = parser.parse_args()
 
     try:
@@ -133,6 +177,8 @@ def main():
 
         if not args.init_only:
             run_scrapers()
+            if not args.skip_matrix:
+                update_job_matrix()
 
     except subprocess.CalledProcessError as error:
         print(
@@ -157,3 +203,9 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+    # to execute the main file:
+    # python -m Main
+
+    # to execute the main file, without the matrix
+    # python Main.py --skip-matrix 
