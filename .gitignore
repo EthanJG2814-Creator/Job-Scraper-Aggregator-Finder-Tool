@@ -45,3 +45,6 @@ Job Matrix/data/
 
 # Private local resume profiles
 Resume_Matcher/data/
+
+# job matrix data creation
+Job_Matrix/data/

@@ -16,7 +16,8 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-24.04
-    timeout-minutes: 480
+    # GitHub-hosted runners are hard-capped at 6 hours per job.
+    timeout-minutes: 360
 
     steps:
       - name: Download repository code
@@ -30,7 +31,11 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Run all scrapers in parallel
+      - name: Scrape (partial results allowed), then parse locations
+        env:
+          # Leaves ~30 minutes of the 6 hour job cap for location parsing and
+          # publishing. On a self-hosted runner this can be raised to 12.
+          SCRAPE_TIME_LIMIT_HOURS: "5.5"
         run: python .github/workflows/github_main.py
 
       - name: Create consistent database snapshot
