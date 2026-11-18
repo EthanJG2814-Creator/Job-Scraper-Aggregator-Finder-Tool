@@ -100,7 +100,7 @@ class Ashby_Algor():
                     "company": slug, "company_id": company_id,
                     "vendor_job_id": vendor_job_id, "url": url,
                     "location": job.get("location"), "secondaryLocations": job.get("secondaryLocations"),
-                    "workplaceType": job.get("workplaceType"),
+                    "workplaceType": job.get("workplaceType"), "address": job.get("address"),
                 }
                 if not isinstance(url, str) or not url.strip():
                     self.database.log_errors.location_error(

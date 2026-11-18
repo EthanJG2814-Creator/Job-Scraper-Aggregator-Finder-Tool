@@ -106,6 +106,7 @@ class greenhouse_main_system():
                     "company": slug, "company_id": company_id,
                     "vendor_job_id": vendor_job_id, "url": url,
                     "location": job.get("location"), "locations": job.get("locations"),
+                    "offices": job.get("offices"),
                 }
                 try:
                     if not url or vendor_job_id is None:

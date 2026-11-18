@@ -17,16 +17,35 @@ from logging_errors import Error_Log_system
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = Path(__file__).with_name("location_schema.sql")
 DEFAULT_DB = ROOT / "The_Database" / "job_data.db"
-DEFAULT_GAZETTEER = Path(__file__).with_name("cities15000.txt")
+_GAZETTEERS = [Path(__file__).with_name(name) for name in ("cities5000.txt", "cities15000.txt")]
+DEFAULT_GAZETTEER = next((path for path in _GAZETTEERS if path.is_file()), _GAZETTEERS[-1])
+# Bump when parsing rules change so the next run reparses every stored string.
+PARSER_VERSION = 3
 SPLIT = re.compile(r"\s*[;|]\s*")
 REMOTE = re.compile(r"\bremote\b", re.IGNORECASE)
 HYBRID = re.compile(r"\bhybrid\b", re.IGNORECASE)
-PREFIX = re.compile(r"^(?:100%\s*)?(?:remote|hybrid)\s*(?:[-,:]\s*)?", re.IGNORECASE)
+PREFIX = re.compile(r"^(?:100%\s*)?(?:remote|hybrid)(?:\s+(?:or|in|from)\b)?\s*(?:[-,:\u2013\u2014]\s*)?", re.IGNORECASE)
+ANYWHERE = re.compile(r"^(?:anywhere|any\s+location)(?:\s+in)?(?:\s+the)?\s*[,:-]?\s*", re.IGNORECASE)
+HOME_BASED = re.compile(r"^home[\s-]*based\b", re.IGNORECASE)
 ZIP = re.compile(r"\s+\d{5}(?:-\d{4})?$")
 HYPHEN_FORMAT = re.compile(r"^(US|USA)-([A-Za-z]{2})-(.+)$", re.IGNORECASE)
 WORKDAY_LOCATION_COUNT = re.compile(r"^\s*(\d+)\s+locations?\s*$", re.IGNORECASE)
-REMOTE_SUFFIX = re.compile(r"(?:,\s*|\s*-\s*)(?:remote|hybrid)$", re.IGNORECASE)
+REMOTE_SUFFIX = re.compile(r"(?:,\s*|\s*[-/\u2013\u2014]\s*|\s+(?:or\s+)?)(?:remote|hybrid)$", re.IGNORECASE)
 STREET_ADDRESS = re.compile(r"^\d+\s+\S")
+COORDINATES = re.compile(r"\s*\|\s*-?\d+(?:\.\d+)?\s*\|\s*-?\d+(?:\.\d+)?")
+FLAG_PAREN = re.compile(r"\s*\((?=[^)]*\b(?:remote|hybrid|hq|headquarters)\b)[^)]*\)", re.IGNORECASE)
+PAREN = re.compile(r"\s*\(([^)]*)\)")
+CODE = re.compile(r"[A-Z]{2,3}")
+OFFICE_SUFFIX = re.compile(
+    r"(?:\s+|\s*-\s*)(?:(?:head\s*)?office|hq|headquarters|hub|campus|(?:(?:bay|metropolitan|metropolitain|metro)\s+)?area)$",
+    re.IGNORECASE,
+)
+ADMIN_SUFFIX = re.compile(r"\s+(?:city|prefecture|district|province|sar)$", re.IGNORECASE)
+COUNTRY_SUFFIX = re.compile(r"^([A-Za-z]{2})\s+([A-Za-z. ]{2,})$")
+REMOTE_ONLY = {"anywhere", "distributed", "remoto", "work from home", "wfh", "home based", "world wide", "worldwide"}
+SPACED_DASH = re.compile(r"\s+[-/\u2013\u2014]\s+")
+STATE_DASH = re.compile(r"^([A-Z]{2})-(.+)$")
+CITY_STATE = re.compile(r"^(.+?)\s+([A-Z][A-Za-z])$")
 CANADA_ADMIN = {
     "01": "AB", "02": "BC", "03": "MB", "04": "NB", "05": "NL",
     "07": "NS", "08": "ON", "09": "PE", "10": "QC", "11": "SK",
@@ -109,9 +128,32 @@ def greenhouse_raw_locations(job):
                 issues.append(f"{field} contains a blank name")
             elif location["name"] not in values:
                 values.append(location["name"])
+    if not values:
+        office_values = greenhouse_office_locations(job)
+        if office_values:
+            return office_values, []
     if not values and not issues:
         issues.append("No location name was supplied")
     return values, issues
+
+
+def greenhouse_office_locations(job):
+    """Fallback: location strings from a job's offices, skipping parent offices
+    whose children are also listed (e.g. a region above a city)."""
+    offices = [o for o in job.get("offices") or [] if isinstance(o, dict)]
+    listed_ids = {o.get("id") for o in offices}
+    values = []
+    for office in offices:
+        children = office.get("child_ids") or []
+        if any(child in listed_ids for child in children):
+            continue
+        for key in ("location", "name"):
+            value = office.get(key)
+            if isinstance(value, str) and value.strip():
+                if value not in values:
+                    values.append(value)
+                break
+    return values
 
 
 def ashby_raw_locations(job):
@@ -135,7 +177,25 @@ def ashby_raw_locations(job):
                     add_location(entry.get("location"), "secondaryLocations")
                 else:
                     issues.append(f"secondaryLocations contains an invalid entry: {entry!r}")
+    if not values:
+        office_location = ashby_office_location(job)
+        if office_location:
+            return [office_location], []
     return values, issues
+
+
+def ashby_office_location(job):
+    """Fallback: build a location string from the job's address.postalAddress."""
+    address = job.get("address")
+    postal = address.get("postalAddress") if isinstance(address, dict) else None
+    if not isinstance(postal, dict):
+        return None
+    parts = [
+        postal[key].strip()
+        for key in ("addressLocality", "addressRegion", "addressCountry")
+        if isinstance(postal.get(key), str) and postal[key].strip()
+    ]
+    return ", ".join(parts) or None
 
 
 def lever_raw_locations(job):
@@ -457,6 +517,7 @@ def geographic_tables():
         "uk": "GB", "u.k.": "GB", "great britain": "GB",
         "south korea": "KR", "north korea": "KP", "russia": "RU",
         "vietnam": "VN", "taiwan": "TW", "czech republic": "CZ",
+        "turkey": "TR", "korea": "KR", "brasil": "BR", "deutschland": "DE", "uae": "AE", "holland": "NL",
     }.items():
         countries[key(name)] = code
     subdivisions = defaultdict(list)
@@ -468,6 +529,7 @@ def geographic_tables():
             subdivisions[(country, key(name))].append(code)
     subdivisions[("US", "washington dc")].append("DC")
     subdivisions[("US", "washington d.c.")].append("DC")
+    subdivisions[("US", "d.c.")].append("DC")
     return countries, subdivisions
 
 
@@ -494,14 +556,47 @@ def load_gazetteer(path):
     return {name: tuple(records.values()) for name, records in cities.items()}
 
 
-def parse_part(text, cities):
+def choose_city(candidates, name):
+    """Pick one gazetteer record for a city name, or None if it is truly ambiguous."""
+    # Alternate names also match unrelated places ("Newton" for "Cambridge"),
+    # so prefer places whose own name matches.
+    candidates = tuple(candidate for candidate in candidates if key(candidate[1]) == key(name)) or candidates
+    ranked = sorted(candidates, key=lambda candidate: candidate[4], reverse=True)
+    if not ranked:
+        return None
+    # Many big cities share a name with small towns, so accept a candidate
+    # that is at least twice as populous as the next one.
+    if len(ranked) == 1 or ranked[0][4] >= 2 * ranked[1][4]:
+        return ranked[0]
+    # Postings skew toward the US, so a lone US city close in size to the
+    # biggest namesake wins ("Santa Clara", "Cambridge").
+    us_cities = [candidate for candidate in ranked if candidate[2] == "US" and candidate[4] >= 0.4 * ranked[0][4]]
+    return us_cities[0] if len(us_cities) == 1 else None
+
+
+def unwrap_paren(match):
+    """Keep parenthesized places ("HQ (Austin, TX)", "Berlin (DE)"); drop other notes."""
+    inner = match.group(1).strip()
+    return f", {inner}" if "," in inner or CODE.fullmatch(inner) else ""
+
+
+def parse_clean_part(text, cities):
     countries, subdivisions = geographic_tables()
     remote = bool(REMOTE.search(text))
     hybrid = bool(HYBRID.search(text))
-    text = PREFIX.sub("", text.strip()).strip(" -,:()")
-    text = REMOTE_SUFFIX.sub("", text).strip()
+    text = FLAG_PAREN.sub("", text.strip())
+    text = PAREN.sub(unwrap_paren, PREFIX.sub("", text.strip())).strip(" -,:()*")
+    text = REMOTE_SUFFIX.sub("", text).strip().replace("_", "-")
+    text = OFFICE_SUFFIX.sub("", text).strip(" -,:()*")
+    if HOME_BASED.match(text):
+        return Place(remote=True, hybrid=hybrid)
+    if ANYWHERE.match(text):
+        remote = True
+        text = ANYWHERE.sub("", text).strip(" -,:()*")
     if not text or key(text) in ("us-remote", "usa-remote"):
         return Place(country="US" if text else None, remote=remote, hybrid=hybrid)
+    if key(text) in REMOTE_ONLY:
+        return Place(remote=True, hybrid=hybrid)
 
     match = HYPHEN_FORMAT.fullmatch(text)
     if match:
@@ -509,19 +604,57 @@ def parse_part(text, cities):
     elif ">" in text:
         parts = [part.strip() for part in reversed(text.split(">"))]
     else:
-        parts = [part.strip() for part in text.split(",")]
+        pieces = SPACED_DASH.split(text)
+
+        def is_region(piece):
+            name = key(piece)
+            return bool(countries.get(name) or subdivisions.get(("US", name)) or subdivisions.get(("CA", name)))
+
+        if len(pieces) > 1 and "," not in pieces[-1] and is_region(pieces[0]) and not is_region(pieces[-1]):
+            pieces.reverse()
+        parts = [part.strip() for piece in pieces for part in piece.split(",")]
     parts = [ZIP.sub("", part).strip() for part in parts if part.strip()]
+    parts = [part for index, part in enumerate(parts) if index == 0 or key(part) != key(parts[index - 1])]
     if not parts:
         return Place(remote=remote, hybrid=hybrid, status="unresolved", reason="No location text")
+    # A country glued to the last part, such as "CA United States".
+    match = COUNTRY_SUFFIX.fullmatch(parts[-1])
+    if match and len(parts) > 1 and countries.get(key(match.group(2))) \
+            and any(subdivisions.get((region, key(match.group(1)))) for region in ("US", "CA")):
+        parts[-1:] = match.groups()
+    if len(parts) == 1:
+        # "City ST" and "ST-City" carry a US/Canada state code without a comma.
+        match = STATE_DASH.fullmatch(parts[0])
+        if match:
+            code, city = match.groups()
+        elif match := CITY_STATE.fullmatch(parts[0]):
+            city, code = match.groups()
+        else:
+            city = code = None
+        if code and any(subdivisions.get((region, key(code))) for region in ("US", "CA")):
+            parts = [city.strip(" ,"), code]
+
+    def is_state_code(part):
+        return len(part) == 2 and part[0].isupper() and any(
+            subdivisions.get((region, key(part))) for region in ("US", "CA")
+        )
 
     country = None
-    last_is_state_code = (
-        len(parts) == 2 and len(parts[-1]) == 2 and parts[-1].isupper()
-        and any(subdivisions.get((code, key(parts[-1]))) for code in ("US", "CA"))
+    country_code = False
+    # A trailing code is a state unless it follows another state ("Toronto, ON, CA").
+    last_is_state_code = len(parts) > 1 and is_state_code(parts[-1]) and (
+        len(parts) == 2 or not is_state_code(parts[-2])
     )
     if not last_is_state_code and (len(parts) > 1 or len(parts[0]) > 2 or key(parts[0]) in ("us", "uk")):
         country = countries.get(key(parts[-1]))
+        # "Atlanta, Georgia" names a US state even though Georgia is also a country.
+        state_codes = subdivisions.get(("US", key(parts[-1])), ()) if len(parts) > 1 else ()
+        if country and state_codes and any(
+            candidate[2] == "US" and candidate[3] in state_codes for candidate in cities.get(key(parts[-2]), ())
+        ):
+            country = None
         if country:
+            country_code = len(parts[-1]) == 2
             parts.pop()
 
     state = None
@@ -538,34 +671,235 @@ def parse_part(text, cities):
             return Place(state=state, country=country, remote=remote, hybrid=hybrid)
         return Place(remote=remote, hybrid=hybrid, status="unresolved", reason="No recognized location")
 
+    def lookup(city, strict=False):
+        """Resolve a city name against the gazetteer using any known state/country."""
+        if STREET_ADDRESS.match(city):
+            return Place(state=state, country=country, remote=remote, hybrid=hybrid,
+                         status="unresolved", reason="Street address requires review")
+        candidates = cities.get(key(city), ())
+        if country:
+            candidates = tuple(candidate for candidate in candidates if candidate[2] == country)
+        if state:
+            candidates = tuple(candidate for candidate in candidates if candidate[3] == state)
+        chosen = choose_city(candidates, city)
+        if chosen:
+            _, name, city_country, admin, _ = chosen
+            return Place(name, state or (admin if city_country in ("US", "CA") and admin else None),
+                         country or city_country, remote, hybrid)
+        if candidates:
+            return Place(state=state, country=country, remote=remote, hybrid=hybrid,
+                         status="unresolved", reason=f"Ambiguous city: {city}")
+        if ADMIN_SUFFIX.search(city) and not state:
+            return lookup(ADMIN_SUFFIX.sub("", city), strict)
+        if country and state and not strict:
+            return Place(city, state, country, remote, hybrid)
+        return Place(state=state, country=country, remote=remote, hybrid=hybrid,
+                     status="unresolved", reason=f"City not found: {city}")
+
     if len(parts) > 1:
+        # Extra components are usually districts or regions around the city, so
+        # accept only a gazetteer-backed match on the first or last component.
+        for city in (parts[0], parts[-1]):
+            place = lookup(city, strict=True)
+            if place.status == "resolved":
+                return place
+        if country and state:
+            # Small towns missing from the gazetteer: "Business Name - Town, ST".
+            place = lookup(parts[-1])
+            if place.status == "resolved":
+                return place
         return Place(state=state, country=country, remote=remote, hybrid=hybrid,
                      status="unresolved", reason="Unrecognized or multiple location components")
+    place = lookup(parts[0])
+    if place.status != "resolved" and country_code and not state:
+        # "Belo Horizonte, MG": a region code that only looks like a country code.
+        country = None
+        retry = lookup(parts[0], strict=True)
+        if retry.status == "resolved":
+            return retry
+    return place
 
-    city = parts[0]
-    if STREET_ADDRESS.match(city):
-        return Place(state=state, country=country, remote=remote, hybrid=hybrid,
-                     status="unresolved", reason="Street address requires review")
-    candidates = cities.get(key(city), ())
-    if country:
-        candidates = tuple(candidate for candidate in candidates if candidate[2] == country)
-    if state:
-        candidates = tuple(candidate for candidate in candidates if candidate[3] == state)
-    if len(candidates) == 1:
-        _, name, city_country, admin, _ = candidates[0]
-        return Place(name, state or (admin if city_country in ("US", "CA") and admin else None),
-                     country or city_country, remote, hybrid)
-    if len(candidates) > 1:
-        return Place(state=state, country=country, remote=remote, hybrid=hybrid,
-                     status="unresolved", reason=f"Ambiguous city: {city}")
-    if country and state:
-        return Place(city, state, country, remote, hybrid)
-    return Place(state=state, country=country, remote=remote, hybrid=hybrid,
-                 status="unresolved", reason=f"City not found: {city}")
+
+STREET_WORDS = {
+    "st", "street", "ave", "avenue", "rd", "road", "blvd", "boulevard", "dr", "drive", "way", "ln", "lane",
+    "pkwy", "parkway", "hwy", "highway", "suite", "ste", "fl", "floor", "bldg", "building", "ct", "court",
+    "pl", "place", "plaza", "sq", "square", "route", "rte", "center", "centre", "park", "tower", "house",
+    "office", "hq", "avenida", "calle", "rue",
+}
+SHORT_COUNTRY_NAMES = {"US": "US", "USA": "US", "UK": "GB", "UAE": "AE", "U.S.": "US", "U.S.A.": "US", "U.K.": "GB"}
+NOT_COUNTRY_NAMES = {"chad", "jersey", "niger", "man", "georgia"}
+UK_PLACES = {
+    "england", "scotland", "wales", "northern ireland", "west midlands", "east midlands", "south yorkshire",
+    "west yorkshire", "tyne and wear", "merseyside", "greater manchester", "greater london", "cornwall",
+    "devon", "dorset", "cumbria", "rutland", "isle of wight", "east sussex", "west sussex",
+}
+COUNTRY_ALIASES = {
+    "maroc": "MA", "espana": "ES", "italia": "IT", "nederland": "NL", "schweiz": "CH", "osterreich": "AT",
+    "new south wales": "AU", "new england": "US",
+}
+PARTIAL_SEGMENT = re.compile(r"[,;|()\[\]/]|\s[-\u2013\u2014]\s")
+ZIP_WORD = re.compile(r"^\d{5}(?:-\d{4})?$")
+
+
+@lru_cache(maxsize=1)
+def partial_tables():
+    countries, subdivisions = geographic_tables()
+    states = {}
+    for (region, name), codes in subdivisions.items():
+        if len(name) > 2 and len(set(codes)) == 1:
+            states[name] = (region, codes[0])
+    names = {name: code for name, code in countries.items() if len(name) > 3 and name not in NOT_COUNTRY_NAMES}
+    names.update({key(name): "GB" for name in UK_PLACES})
+    names.update(COUNTRY_ALIASES)
+    return states, names
+
+
+def partial_place(text, cities, base):
+    """Salvage the state or country (and a city if one is found) from text that did not parse cleanly."""
+    countries, subdivisions = geographic_tables()
+    state_names, country_names = partial_tables()
+    segments = [segment.split() for segment in PARTIAL_SEGMENT.split(text)]
+    states, found_countries, consumed, spans = [], [], set(), []
+    for s, words in enumerate(segments):
+        i = 0
+        while i < len(words):
+            matched = False
+            for size in range(min(4, len(words) - i), 0, -1):
+                phrase = " ".join(words[i:i + size]).strip(",;:*")
+                name = key(phrase)
+                following = key(words[i + size]).rstrip(".") if i + size < len(words) else ""
+                if size == 1 and following in STREET_WORDS and name in state_names:
+                    continue
+                if name in state_names:
+                    # State words stay available so a longer city name can still contain them ("New York City").
+                    states.append((*state_names[name], "ambiguous" if name == "georgia" else "name"))
+                    spans.append((s, i, size))
+                    i += size
+                    matched = True
+                    break
+                if phrase in SHORT_COUNTRY_NAMES:
+                    found_countries.append(SHORT_COUNTRY_NAMES[phrase])
+                elif name in country_names and not (size == 1 and following in STREET_WORDS):
+                    found_countries.append(country_names[name])
+                elif size == 1 and len(words) == 1 and len(name) > 6 and name.endswith("shire"):
+                    found_countries.append("GB")
+                else:
+                    continue
+                consumed.update((s, i + j) for j in range(size))
+                i += size
+                matched = True
+                break
+            if matched:
+                continue
+            word = words[i].strip(".,;:")
+            if word.isupper() and len(word) == 2 and (i == 0 and s > 0 or i + 1 < len(words) and ZIP_WORD.match(words[i + 1])):
+                for region in ("US", "CA"):
+                    codes = subdivisions.get((region, key(word)))
+                    if codes and len(set(codes)) == 1:
+                        states.append((region, codes[0], "code"))
+                        consumed.add((s, i))
+                        break
+            i += 1
+
+    us_hint = any(country == "US" for country in found_countries) or any(
+        ZIP_WORD.match(word) for words in segments for word in words
+    )
+    all_words = [word.strip(",;:*") for words in segments for word in words]
+    grams = {key(" ".join(all_words[i:i + size])) for i in range(len(all_words)) for size in (1, 2, 3)}
+    if any(state[2] == "ambiguous" for state in states):
+        # "Georgia" is a US state unless the text names a city that only exists in the country.
+        in_country = any(c[2] == "GE" for gram in grams for c in cities.get(gram, ()))
+        in_state = any(c[2] == "US" and c[3] == "GA" for gram in grams for c in cities.get(gram, ()))
+        if in_country and not in_state and not us_hint:
+            states = [state for state in states if state[2] != "ambiguous"]
+            found_countries.append("GE")
+    country = state = None
+    from_code = False
+    if states:
+        distinct = list(dict.fromkeys((region, code) for region, code, _ in states))
+        codes = list(dict.fromkeys((region, code) for region, code, kind in states if kind == "code"))
+        # "Washington, DC 20001" mentions two states; an abbreviation beats a name.
+        pick = distinct[0] if len(distinct) == 1 else codes[0] if len(codes) == 1 else None
+        if pick:
+            country, state = pick
+            from_code = pick in codes
+        elif len({region for region, _ in distinct}) == 1:
+            country = distinct[0][0]
+        if found_countries and country not in found_countries:
+            country = state = None
+    if not country:
+        distinct = list(dict.fromkeys(found_countries))
+        if len(distinct) != 1:
+            return None
+        country = distinct[0]
+
+    def in_state_span(s, i, size):
+        for span_s, span_i, span_size in spans:
+            if span_s == s and i < span_i + span_size and span_i < i + size:
+                # With an explicit abbreviation ("New York, NY") the state-named words can be the city.
+                if from_code and i == span_i and size == span_size:
+                    continue
+                if not (i <= span_i and i + size >= span_i + span_size and size > span_size):
+                    return True
+        return False
+
+    def usable(s, i, size):
+        """A word run that could be a city name rather than a street, number or already-used word."""
+        if any((s, i + j) in consumed for j in range(size)) or in_state_span(s, i, size):
+            return None
+        words = segments[s][i:i + size]
+        phrase = " ".join(words).strip(",;:*")
+        parts = [key(word).rstrip(".") for word in words]
+        following = key(segments[s][i + size]).rstrip(".") if i + size < len(segments[s]) else ""
+        if any(char.isdigit() for char in phrase) or all(part in STREET_WORDS for part in parts) \
+                or following in STREET_WORDS or parts[0] in STREET_WORDS or (key(phrase) in state_names and not from_code):
+            return None
+        return phrase
+
+    # A lone US or Canada country match gives too little context to trust a city name.
+    city = None
+    if state or country not in ("US", "CA"):
+        for s, words in enumerate(segments):
+            i = 0
+            while i < len(words):
+                for size in range(min(4, len(words) - i), 0, -1):
+                    phrase = usable(s, i, size)
+                    if not phrase:
+                        continue
+                    candidates = tuple(
+                        candidate for candidate in cities.get(key(phrase), ())
+                        if candidate[2] == country and (not state or candidate[3] == state)
+                    )
+                    chosen = choose_city(candidates, phrase)
+                    if chosen:
+                        city = chosen
+                        i += size - 1
+                        break
+                i += 1
+    if not state and not city:
+        # "London/New York/Singapore" names several places; a single country would misfile it.
+        for s, words in enumerate(segments):
+            for i in range(len(words)):
+                for size in (1, 2, 3):
+                    phrase = usable(s, i, size) if i + size <= len(words) else None
+                    other = choose_city(cities.get(key(phrase), ()), phrase) if phrase and len(phrase) > 3 else None
+                    if other and other[2] != country and other[4] >= 100000:
+                        return None
+    found = [label for label, value in (("country", country), ("state", state), ("city", city)) if value]
+    name, admin = (city[1], city[3]) if city else (None, None)
+    return Place(name, state or (admin if country in ("US", "CA") else None), country, base.remote, base.hybrid,
+                 reason=f"Partial match ({', '.join(found)}); original: {base.reason}")
+
+
+def parse_part(text, cities):
+    place = parse_clean_part(text, cities)
+    if place.status == "resolved":
+        return place
+    return partial_place(text, cities, place) or place
 
 
 def parse_locations(raw, cities):
-    return [parse_part(part, cities) for part in SPLIT.split(raw) if part.strip()] or [
+    return [parse_part(part, cities) for part in SPLIT.split(COORDINATES.sub("", raw)) if part.strip()] or [
         Place(status="unresolved", reason="Empty location")
     ]
 
@@ -661,9 +995,14 @@ def main(argv=None):
             raise FileNotFoundError(f"GeoNames file does not exist: {args.gazetteer}")
         with sqlite3.connect(args.db, timeout=120) as connection:
             vendors = ("Greenhouse", "Ashby", "Lever", "BambooHR", "iCIMS", "Workday") if args.vendor == "all" else (args.vendor,)
+            stale = args.vendor == "all" and connection.execute("PRAGMA user_version").fetchone()[0] != PARSER_VERSION
+            if stale:
+                print("Parser rules changed since the last run; reparsing all stored locations.")
             for vendor in vendors:
-                count = parse_database(connection, args.gazetteer, args.reparse, ats_vendor=vendor)
+                count = parse_database(connection, args.gazetteer, args.reparse or stale, ats_vendor=vendor)
                 print(f"Parsed {count} distinct {vendor} location strings.")
+            if args.vendor == "all":
+                connection.execute(f"PRAGMA user_version = {PARSER_VERSION}")
     except Exception as error:
         Error_Log_system().location_error(
             error, "Location parser command", args.vendor,
@@ -676,3 +1015,5 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+# job function exectuion
+# python -m Jobs.Locations.locations_func
