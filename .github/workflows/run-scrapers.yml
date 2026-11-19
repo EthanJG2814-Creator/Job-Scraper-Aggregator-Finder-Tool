@@ -2,6 +2,11 @@ name: Run job scrapers and publish database
 
 on:
   workflow_dispatch:
+    inputs:
+      time_limit_hours:
+        description: "Scrape time limit per job, in hours (use 0.1 for a quick test)"
+        required: false
+        default: "5.0"
   schedule:
     # Every Wednesday at 12:17 UTC
     - cron: "17 12 * * 3"
@@ -15,9 +20,22 @@ concurrency:
 
 jobs:
   scrape:
+    name: Scrape (${{ matrix.part }})
     runs-on: ubuntu-24.04
     # GitHub-hosted runners are hard-capped at 6 hours per job.
     timeout-minutes: 360
+
+    strategy:
+      # One part failing must not cancel the other.
+      fail-fast: false
+      matrix:
+        include:
+          # Action 1: these run one after another, in this order.
+          - part: main
+            scrapers: "ashby bamboohr greenhouse icims lever"
+          # Action 2: Workday gets its own runner and its own 6 hour cap.
+          - part: workday
+            scrapers: "workday"
 
     steps:
       - name: Download repository code
@@ -33,17 +51,22 @@ jobs:
 
       - name: Scrape (partial results allowed), then parse locations
         env:
-          # Leaves ~30 minutes of the 6 hour job cap for location parsing and
-          # publishing. On a self-hosted runner this can be raised to 12.
-          SCRAPE_TIME_LIMIT_HOURS: "5.5"
-        run: python .github/workflows/github_main.py
+          # Leaves about an hour of the 6 hour cap for location parsing,
+          # the snapshot, zipping and uploading. Tune after the first run.
+          SCRAPE_TIME_LIMIT_HOURS: ${{ inputs.time_limit_hours || '5.0' }}
+          SCRAPERS: ${{ matrix.scrapers }}
+        run: python .github/workflows/github_main.py --scrapers $SCRAPERS
 
       - name: Create consistent database snapshot
+        env:
+          PART: ${{ matrix.part }}
         run: |
           python - <<'PY'
-          from pathlib import Path
+          import os
           import sqlite3
+          from pathlib import Path
 
+          part = os.environ["PART"]
           source_path = Path("The_Database/job_data.db")
 
           if not source_path.is_file():
@@ -53,7 +76,7 @@ jobs:
 
           output = Path("artifacts")
           output.mkdir(exist_ok=True)
-          snapshot_path = output / "job_data.db"
+          snapshot_path = output / f"job_data_{part}.db"
 
           source = sqlite3.connect(
               source_path.resolve().as_uri() + "?mode=ro",
@@ -86,13 +109,17 @@ jobs:
           PY
 
       - name: Compress database and check release size
+        env:
+          PART: ${{ matrix.part }}
         run: |
           python - <<'PY'
+          import os
           from pathlib import Path
           from zipfile import ZipFile, ZIP_DEFLATED
 
-          database_path = Path("artifacts/job_data.db")
-          zip_path = Path("artifacts/job_data.zip")
+          part = os.environ["PART"]
+          database_path = Path(f"artifacts/job_data_{part}.db")
+          zip_path = Path(f"artifacts/job_data_{part}.zip")
 
           with ZipFile(
               zip_path,
@@ -101,7 +128,7 @@ jobs:
               compresslevel=6,
               allowZip64=True,
           ) as archive:
-              archive.write(database_path, arcname="job_data.db")
+              archive.write(database_path, arcname=database_path.name)
 
           size = zip_path.stat().st_size
           limit = 2 * 1024**3
@@ -113,13 +140,45 @@ jobs:
 
           if size >= limit:
               raise RuntimeError(
-                  "The ZIP is too large for a single release asset. "
-                  "Split it into smaller files or use external storage. "
-                  "No release will be published."
+                  "The ZIP is too large for a single release asset "
+                  "(2 GiB limit). No release will be published for this part."
               )
 
           database_path.unlink()
           PY
+
+      - name: Upload zipped database for publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-data-${{ matrix.part }}
+          path: artifacts/job_data_${{ matrix.part }}.zip
+          if-no-files-found: error
+          # The zip is already compressed, so don't compress it again.
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    name: Publish release
+    needs: scrape
+    # Publish whatever succeeded, even if one part failed.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download zipped databases
+        uses: actions/download-artifact@v4
+        with:
+          pattern: job-data-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Check that there is something to publish
+        run: |
+          ls -lh artifacts
+          if ! ls artifacts/*.zip >/dev/null 2>&1; then
+            echo "No database zips were produced; nothing to publish."
+            exit 1
+          fi
 
       - name: Publish database release
         env:
@@ -128,21 +187,24 @@ jobs:
         run: |
           DATE="$(date -u +%F)"
           TAG="database-${DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          FILES="$(cd artifacts && ls *.zip | tr '\n' ' ')"
 
           cat > release-notes.md <<EOF
-          Automated job database checkpoint.
+          Automated job database checkpoint, split into separate databases.
+
+          Files in this release: ${FILES}
+
+          - job_data_main.zip: Ashby, BambooHR, Greenhouse, iCIMS, Lever
+          - job_data_workday.zip: Workday
+
+          If one of these is missing, that part failed in this run.
 
           ## How to use
 
-          1. Download job_data.zip.
-          2. Extract job_data.db.
-          3. Close any running scraper or application processes.
-          4. Back up your existing database before replacing it.
-          5. Place job_data.db in The_Database/.
-          6. Run the application or scraper normally.
-
-          This database is a starting checkpoint. Replacing a local
-          database does not merge its existing contents.
+          1. Download the zip files and extract each .db file.
+          2. Every .db file has the same schema but its own IDs, so they
+             must be merged into one database rather than copied over each other.
+          3. Back up your existing database before replacing it.
 
           Snapshot date: ${DATE} UTC
           Source commit: ${GITHUB_SHA}
@@ -150,7 +212,7 @@ jobs:
           EOF
 
           gh release create "$TAG" \
-            artifacts/job_data.zip \
+            artifacts/*.zip \
             --target "$GITHUB_SHA" \
             --title "${DATE} Database Snapshot" \
             --notes-file release-notes.md \
